@@ -1,0 +1,962 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Shadows Map</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: carte plein écran, panneau flottant en bas à gauche (pleine largeur sur mobile) */
+:root {
+  --bg: #eef0ea; --panel: rgba(250,249,244,.96); --fg: #1d2130; --muted: #5d6272; --line: #d9dbd2;
+  --sun: #e39b26; --shade: #2b3166; --night: #1b1f3a; --sky: #bcd3e6; --chip: #ecebe3;
+  --font-ui: "Familjen Grotesk", "Segoe UI", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12141c; --panel: rgba(24,26,36,.96); --fg: #e8e6df; --muted: #9a9eac; --line: #33364a;
+  --sun: #f0b04a; --shade: #6a72c9; --night: #0b0d18; --sky: #3a5878; --chip: #2a2d3d; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12141c; --panel: rgba(24,26,36,.96); --fg: #e8e6df; --muted: #9a9eac; --line: #33364a;
+  --sun: #f0b04a; --shade: #6a72c9; --night: #0b0d18; --sky: #3a5878; --chip: #2a2d3d; color-scheme: dark }
+
+html, body { height: 100%; margin: 0 }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 14px }
+#map { position: absolute; inset: 0; background: var(--bg) }
+.leaflet-image-layer.relief { image-rendering: auto }
+#night { position: absolute; inset: 0; z-index: 450; pointer-events: none; background: rgb(8,12,48); opacity: 0 }
+
+.panel {
+  position: absolute; z-index: 1000; left: max(12px, env(safe-area-inset-left, 0px));
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px)); width: 400px; max-width: calc(100% - 24px);
+  box-sizing: border-box; padding: 14px 16px 16px; display: grid; gap: 12px;
+  background: var(--panel); backdrop-filter: blur(8px); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: 0 8px 28px rgba(10,12,30,.22);
+}
+.panel header { display: flex; align-items: center; justify-content: space-between; gap: 8px }
+.panel h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.01em }
+#status { font-size: 12px; color: var(--muted); text-align: right; flex: 1 }
+.panel.collapsed .more { display: none }
+#collapse svg { transition: transform .2s }
+.panel.collapsed #collapse svg { transform: rotate(180deg) }
+
+button { font: inherit; color: var(--fg) }
+.icon-btn, .play, .step {
+  border: 1px solid var(--line); background: transparent; cursor: pointer; border-radius: 8px;
+  display: inline-grid; place-items: center; padding: 0; height: 30px; min-width: 30px;
+}
+.step { padding: 0 8px; font-size: 12px; font-family: var(--font-num) }
+.icon-btn:hover, .play:hover, .step:hover { border-color: var(--sun) }
+.icon-btn svg, .play svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2 }
+.play svg { fill: currentColor; stroke: none; width: 11px; height: 11px }
+.play { border-radius: 50% }
+.play[aria-pressed="true"], #btnStar.on { background: var(--sun); border-color: var(--sun); color: #1d2130 }
+#btnStar { font-size: 16px; line-height: 1 }
+
+.place { display: flex; gap: 6px }
+.search { position: relative; flex: 1; min-width: 0 }
+.search input {
+  width: 100%; box-sizing: border-box; height: 30px; padding: 0 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: transparent; color: var(--fg); font: inherit;
+}
+.results {
+  position: absolute; left: 0; right: 0; top: 34px; z-index: 5; margin: 0; padding: 4px; list-style: none;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; max-height: 260px; overflow: auto;
+  box-shadow: 0 8px 20px rgba(10,12,30,.25);
+}
+.results li { display: flex; align-items: center }
+.results button { border: 0; background: transparent; cursor: pointer; text-align: left; border-radius: 6px }
+.results .res-main { flex: 1; padding: 6px 8px; display: grid; min-width: 0 }
+.results .res-main:hover, .results .res-main:focus-visible { background: var(--chip) }
+.results .sub { font-size: 11px; color: var(--muted) }
+.results .res-star { width: 30px; height: 30px; font-size: 16px; color: var(--muted) }
+.results .res-star.on { color: var(--sun) }
+#placeInfo { font-size: 13px; line-height: 1.45; padding: 8px 10px; border-radius: 8px; background: var(--chip) }
+#placeInfo b { font-family: var(--font-num); font-weight: 500 }
+#placeInfo strong { font-weight: 600 }
+#placeInfo .sub { color: var(--muted); font-size: 12px }
+
+.chips { display: flex; gap: 6px; flex-wrap: wrap }
+.chips:empty { display: none }
+.chip { display: inline-flex; align-items: center; border-radius: 99px; background: var(--chip); border: 1px solid var(--line); touch-action: none; user-select: none }
+.chip.active { border-color: var(--sun) }
+.chip.dragging { opacity: .8; z-index: 2; position: relative }
+.chip.drop { outline: 2px dashed var(--sun) }
+.chip button { border: 0; background: transparent; cursor: pointer; font-size: 12px }
+.chip .fav-main { padding: 4px 4px 4px 10px }
+.chip .fav-del { padding: 4px 8px 4px 4px; color: var(--muted) }
+.chip input { border: 0; background: transparent; color: var(--fg); font: inherit; font-size: 12px; padding: 4px 10px; width: 120px }
+
+.row { display: grid; gap: 6px }
+.row-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
+.row-head .lab { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); width: 44px }
+.row-head output { font-family: var(--font-num); font-size: 15px; font-weight: 500; flex: 1 }
+.row-head input[type=date] {
+  height: 30px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 8px; background: transparent;
+  color: var(--fg); font-family: var(--font-num); font-size: 13px; padding: 0 6px; flex: 1; min-width: 0;
+}
+#weekday { font-size: 12px; color: var(--muted); width: 30px }
+.daynav { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 6px }
+input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
+:focus-visible { outline: 2px solid var(--sun); outline-offset: 2px }
+
+.strip { position: relative; height: 38px }
+.strip canvas { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 6px }
+.strip input { position: absolute; inset: 0; height: 100%; opacity: 0; cursor: ew-resize }
+.ticks { display: flex; justify-content: space-between; font-family: var(--font-num); font-size: 10px; color: var(--muted) }
+
+.readout { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 4px; margin: 0 }
+.readout div { display: grid; gap: 2px; min-width: 0 }
+.readout dt { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--muted) }
+.readout dd { margin: 0; font-family: var(--font-num); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.pill { display: inline-block; padding: 1px 7px; border-radius: 99px; font-size: 11px; font-weight: 600; margin-right: 4px }
+.pill.sun { background: var(--sun); color: #1d2130 }
+.pill.shade { background: var(--shade); color: #fff }
+.pill.night { background: var(--night); color: #e8e6df }
+
+.opts { display: flex; align-items: center; gap: 10px; flex-wrap: wrap }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden }
+.seg button { border: 0; background: transparent; font-size: 12px; padding: 5px 10px; cursor: pointer }
+.seg button[aria-pressed="true"] { background: var(--fg); color: var(--bg) }
+.opts label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); flex: 1; min-width: 120px }
+.opts select {
+  flex: 1; min-width: 0; height: 30px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  color: var(--fg); font: inherit; font-size: 12px; padding: 0 6px;
+}
+
+@media (max-width: 520px) {
+  .panel { left: 0; right: 0; bottom: 0; width: auto; max-width: none; border-radius: 14px 14px 0 0;
+    padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(14px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); gap: 10px }
+}
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<aside class="panel" id="panel" aria-label="Réglages soleil">
+  <header>
+    <h1>Shadows Map</h1>
+    <span id="status">Chargement…</span>
+    <button class="icon-btn" id="collapse" title="Réduire / agrandir le panneau" aria-expanded="true"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
+  </header>
+
+  <div class="place">
+    <div class="search">
+      <input id="search" type="search" placeholder="Rechercher un lieu…" autocomplete="off" enterkeyhint="search" aria-label="Rechercher un lieu">
+      <ul id="results" class="results" hidden></ul>
+    </div>
+    <button class="icon-btn" id="btnGps" title="Ma position"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg></button>
+    <button class="icon-btn" id="btnStar" title="Ajouter ce lieu aux favoris">☆</button>
+  </div>
+  <div id="favs" class="chips more" aria-label="Favoris"></div>
+  <div id="placeInfo">Clique sur la carte ou cherche un lieu.</div>
+
+  <div class="row">
+    <div class="row-head">
+      <span class="lab">Date</span>
+      <span id="weekday"></span>
+      <input type="date" id="dateInput" aria-label="Date">
+      <button class="play" id="playYear" aria-pressed="false" title="Faire défiler l'année"><svg viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg></button>
+    </div>
+    <div class="daynav">
+      <button class="step" id="prevDay" title="Jour précédent">−1 j</button>
+      <button class="step" id="today" title="Revenir à aujourd'hui">Aujourd'hui</button>
+      <button class="step" id="nextDay" title="Jour suivant">+1 j</button>
+    </div>
+    <input type="range" id="day" min="0" max="364" step="1" aria-label="Jour de l'année">
+  </div>
+
+  <div class="row">
+    <div class="row-head">
+      <span class="lab">Heure</span>
+      <output id="timeLabel">–</output>
+      <button class="play" id="playDay" aria-pressed="false" title="Faire défiler la journée"><svg viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg></button>
+    </div>
+    <div class="strip">
+      <canvas id="strip"></canvas>
+      <input type="range" id="time" min="0" max="1435" step="5" aria-label="Heure de la journée">
+    </div>
+    <div class="ticks"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>24h</span></div>
+  </div>
+
+  <dl class="readout more">
+    <div><dt>Hauteur</dt><dd id="rAlt">–</dd></div>
+    <div><dt>Azimut</dt><dd id="rAz">–</dd></div>
+    <div><dt>Jour</dt><dd id="rLen">–</dd></div>
+    <div><dt>Lumière</dt><dd id="rPhase">–</dd></div>
+    <div><dt>Aube civ.</dt><dd id="rDawn">–</dd></div>
+    <div><dt>Lever</dt><dd id="rRise">–</dd></div>
+    <div><dt>Coucher</dt><dd id="rSet">–</dd></div>
+    <div><dt>Crép. civ.</dt><dd id="rDusk">–</dd></div>
+  </dl>
+
+  <div class="opts more">
+    <div class="seg" role="group" aria-label="Rendu">
+      <button id="modeHard" aria-pressed="true">Ombre nette</button>
+      <button id="modeSoft" aria-pressed="false">Nuancé</button>
+    </div>
+    <label for="opacity">Opacité <input type="range" id="opacity" min="0.15" max="0.9" step="0.05" value="0.55"></label>
+  </div>
+  <div class="opts more">
+    <label for="base" style="flex:none">Fond</label>
+    <select id="base" aria-label="Fond de carte"></select>
+  </div>
+</aside>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+"use strict";
+const rad = Math.PI / 180;
+const REACH = 12000;          // portée max des ombres prise en compte (m)
+const EARTH = 40075016.686;
+const STORE_KEY = "ombres-relief.v1";
+const $ = id => document.getElementById(id);
+const setStatus = s => { $("status").textContent = s; };
+
+// ---------- Position du soleil (approximation NOAA, ~0.1°) ----------
+function sunPosition(date, lat, lon) {
+  const d = date.getTime() / 86400000 + 2440587.5 - 2451545.0;
+  const g = (357.529 + 0.98560028 * d) * rad;
+  const q = 280.459 + 0.98564736 * d;
+  const L = (q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad;
+  const e = (23.439 - 0.00000036 * d) * rad;
+  const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L));
+  const dec = Math.asin(Math.sin(e) * Math.sin(L));
+  const gmst = ((18.697374558 + 24.06570982441908 * d) % 24 + 24) % 24;
+  const H = gmst * 15 * rad + lon * rad - ra;
+  const la = lat * rad;
+  let alt = Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(H));
+  const az = Math.atan2(-Math.sin(H), Math.tan(dec) * Math.cos(la) - Math.sin(la) * Math.cos(H));
+  const altDeg = alt / rad;
+  if (altDeg > -1) alt += (1.02 / Math.tan((altDeg + 10.3 / (altDeg + 5.11)) * rad) / 60) * rad; // réfraction
+  return { alt, az: (az + 2 * Math.PI) % (2 * Math.PI) };
+}
+
+// Obscurité de la nuit selon la hauteur du soleil : rien de jour, puis crépuscules civil (0 → −6°),
+// nautique (−6 → −12°) et astronomique (−12 → −18°). La durée de la transition découle donc
+// directement de la latitude et de la saison.
+const NIGHT_MAX = 0.62;
+function nightLevel(altDeg) {
+  const pts = [[0.5, 0], [0, 0.08], [-6, 0.42], [-12, 0.85], [-18, 1]];
+  if (altDeg >= pts[0][0]) return 0;
+  for (let i = 1; i < pts.length; i++) if (altDeg >= pts[i][0]) {
+    const [a0, v0] = pts[i - 1], [a1, v1] = pts[i];
+    return v0 + (v1 - v0) * (a0 - altDeg) / (a0 - a1);
+  }
+  return 1;
+}
+function phaseName(altDeg, az) {
+  const morning = az < Math.PI;
+  if (altDeg > 0) return "jour";
+  if (altDeg > -6) return morning ? "aube civile" : "crép. civil";
+  if (altDeg > -12) return morning ? "aube nautique" : "crép. nautique";
+  if (altDeg > -18) return morning ? "aube astro." : "crép. astro.";
+  return "nuit";
+}
+
+// ---------- Fuseau horaire du lieu ----------
+const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+const fmtCache = {};
+function tzParts(ms, tz) {
+  const f = fmtCache[tz] || (fmtCache[tz] = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+  const p = {};
+  for (const x of f.formatToParts(new Date(ms))) p[x.type] = +x.value;
+  return p;
+}
+function tzOffsetMin(ms, tz) {  // avance du fuseau sur UTC, en minutes
+  const p = tzParts(ms, tz);
+  return Math.round((Date.UTC(p.year, p.month - 1, p.day, p.hour % 24, p.minute, p.second) - ms) / 60000);
+}
+
+// ---------- État ----------
+const state = {
+  year: 2026, day: 0, minute: 600,
+  mode: 0, opacity: 0.55, base: "topo",
+  tz: browserTz,
+  place: null,        // { name, region, lat, lon, tz }
+  favs: [],
+  pointSeries: null,  // soleil (1) / ombre (0) au lieu, pas de 5 min
+  pointElev: null,
+  sunSeries: null,    // hauteur du soleil (rad) au lieu, pas de 5 min
+};
+const isLeap = y => (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+const fmtMin = m => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+const fmtDur = m => `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`;
+
+function save() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ favs: state.favs, place: state.place, base: state.base, mode: state.mode, opacity: state.opacity })); }
+  catch { /* stockage indisponible */ }
+}
+try {
+  const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
+  if (s) Object.assign(state, { favs: s.favs || [], place: s.place || null, base: s.base || "topo", mode: s.mode || 0, opacity: s.opacity || 0.55 });
+} catch { /* ignore */ }
+if (!state.place) state.place = { name: "Chamonix-Mont-Blanc", region: "Auvergne-Rhône-Alpes, France", lat: 45.9237, lon: 6.8694, tz: "Europe/Paris" };
+state.tz = state.place.tz || browserTz;
+
+// Heure locale du lieu (minutes depuis minuit) → instant réel
+let dayCache = null;
+function dateAt(min) {
+  const key = `${state.year}-${state.day}-${state.tz}`;
+  if (!dayCache || dayCache.key !== key) {
+    const base = Date.UTC(state.year, 0, 1 + state.day);
+    const o0 = tzOffsetMin(base, state.tz), o1 = tzOffsetMin(base + 86400000, state.tz);
+    dayCache = { key, base, o0, same: o0 === o1 };
+  }
+  const { base, o0, same } = dayCache;
+  const wall = base + min * 60000;
+  return new Date(wall - (same ? o0 : tzOffsetMin(wall - o0 * 60000, state.tz)) * 60000);
+}
+function setToday() {
+  const p = tzParts(Date.now(), state.tz);
+  setDate(p.year, Math.round((Date.UTC(p.year, p.month - 1, p.day) - Date.UTC(p.year, 0, 1)) / 86400000));
+  return p;
+}
+function setDate(year, day) {
+  const d = new Date(Date.UTC(year, 0, 1 + day));
+  state.year = d.getUTCFullYear();
+  state.day = Math.round((d - Date.UTC(state.year, 0, 1)) / 86400000);
+  dayInput.max = isLeap(state.year) ? 365 : 364;
+  dayInput.value = state.day;
+  $("dateInput").value = d.toISOString().slice(0, 10);
+  $("weekday").textContent = d.toLocaleDateString("fr-FR", { weekday: "short", timeZone: "UTC" });
+  computeDay();
+  requestRender();
+}
+
+// ---------- Fonds de carte ----------
+const geopf = (layer, fmt) => `https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=${layer}&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=${fmt}`;
+const BASES = [
+  { group: "Monde", items: [
+    ["topo", "OpenTopoMap", "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", 17, "© OpenStreetMap, SRTM | OpenTopoMap (CC-BY-SA)"],
+    ["osm", "OpenStreetMap", "https://tile.openstreetmap.org/{z}/{x}/{y}.png", 19, "© OpenStreetMap"],
+    ["esri", "Satellite (Esri)", "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", 18, "Esri, Maxar, Earthstar"],
+  ]},
+  { group: "Cartes topo officielles", items: [
+    ["ign", "France · Plan IGN", geopf("GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2", "image/png"), 19, "© IGN Géoplateforme"],
+    ["ignphoto", "France · Photo aérienne IGN", geopf("ORTHOIMAGERY.ORTHOPHOTOS", "image/jpeg"), 19, "© IGN Géoplateforme"],
+    ["swiss", "Suisse · swisstopo", "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg", 18, "© swisstopo"],
+    ["austria", "Autriche · basemap.at", "https://mapsneu.wien.gv.at/basemap/geolandbasemap/normal/google3857/{z}/{y}/{x}.png", 19, "© basemap.at"],
+    ["germany", "Allemagne / Europe · TopPlusOpen", "https://sgx.geodatenzentrum.de/wmts_topplus_open/tile/1.0.0/web/default/WEBMERCATOR/{z}/{y}/{x}.png", 18, "© BKG (TopPlusOpen)"],
+    ["spain", "Espagne · IGN MTN", "https://www.ign.es/wmts/mapa-raster?service=WMTS&request=GetTile&version=1.0.0&format=image/jpeg&layer=MTN&tilematrixset=GoogleMapsCompatible&style=default&tilematrix={z}&tilerow={y}&tilecol={x}", 18, "© IGN España"],
+    ["belgium", "Belgique · NGI", "https://cartoweb.wmts.ngi.be/1.0.0/topo/default/3857/{z}/{y}/{x}.png", 18, "© NGI-IGN"],
+    ["norway", "Norvège · Kartverket", "https://cache.kartverket.no/v1/wmts/1.0.0/topo/default/webmercator/{z}/{y}/{x}.png", 18, "© Kartverket"],
+    ["usa", "États-Unis · USGS Topo", "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}", 16, "USGS The National Map"],
+    ["japan", "Japon · GSI", "https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png", 18, "© 国土地理院 (GSI)"],
+  ]},
+];
+const baseDefs = {};
+for (const g of BASES) {
+  const og = document.createElement("optgroup");
+  og.label = g.group;
+  for (const [id, label, url, maxZoom, attribution] of g.items) {
+    baseDefs[id] = { url, maxZoom, attribution };
+    og.append(new Option(label, id));
+  }
+  $("base").append(og);
+}
+
+// ---------- Carte ----------
+const map = L.map("map", { zoomControl: true, maxZoom: 18 }).setView([state.place.lat, state.place.lon], 12);
+map.attributionControl.addAttribution("Relief : Terrain Tiles (AWS / Mapzen)");
+let baseLayer = null;
+function setBase(id) {
+  if (!baseDefs[id]) id = "topo";
+  state.base = id;
+  $("base").value = id;
+  if (baseLayer) baseLayer.remove();
+  const d = baseDefs[id];
+  baseLayer = L.tileLayer(d.url, { maxZoom: 18, maxNativeZoom: d.maxZoom, attribution: d.attribution }).addTo(map);
+  save();
+}
+setBase(state.base);
+const nightEl = document.createElement("div");
+nightEl.id = "night";
+map.getContainer().append(nightEl);
+
+// Calque Leaflet qui positionne un <canvas> comme une image géoréférencée
+const CanvasOverlay = L.ImageOverlay.extend({
+  _initImage() {
+    const c = this._image = this.options.canvas;
+    L.DomUtil.addClass(c, "leaflet-image-layer");
+    L.DomUtil.addClass(c, "relief");
+    if (this._zoomAnimated) L.DomUtil.addClass(c, "leaflet-zoom-animated");
+  },
+});
+
+// ---------- WebGL : calcul des ombres ----------
+const glc = document.createElement("canvas");
+glc.width = glc.height = 1;
+const gl = glc.getContext("webgl", { premultipliedAlpha: true, alpha: true, antialias: false });
+const overlay = new CanvasOverlay("", [[0, 0], [0, 0]], { canvas: glc, interactive: false }).addTo(map);
+
+const VS = `attribute vec2 a_pos; varying vec2 v_uv;
+void main(){ v_uv = vec2((a_pos.x+1.0)*0.5, (1.0-a_pos.y)*0.5); gl_Position = vec4(a_pos,0.0,1.0); }`;
+const FS = `precision highp float;
+uniform sampler2D u_dem; uniform vec2 u_size; uniform vec2 u_dir; uniform vec3 u_sun;
+uniform float u_tanAlt, u_px, u_maxE, u_night, u_mode, u_opacity; uniform vec3 u_color;
+varying vec2 v_uv;
+float elev(vec2 uv){ vec4 c = texture2D(u_dem, uv) * 255.0; return c.r*256.0 + c.g + c.b/256.0 - 32768.0; }
+void main(){
+  if (u_night > 0.5) { gl_FragColor = vec4(u_color, 1.0) * u_opacity; return; }
+  vec2 tx = 1.0 / u_size;
+  float h0 = elev(v_uv);
+  float hl = elev(v_uv - vec2(tx.x, 0.0)), hr = elev(v_uv + vec2(tx.x, 0.0));
+  float hu = elev(v_uv - vec2(0.0, tx.y)), hd = elev(v_uv + vec2(0.0, tx.y));
+  vec3 n = normalize(vec3((hl - hr) / (2.0*u_px), (hd - hu) / (2.0*u_px), 1.0));
+  float lambert = dot(n, u_sun);
+  float shadow = lambert <= 0.0 ? 1.0 : 0.0;
+  if (shadow < 0.5) {
+    float t = 0.0, stp = 1.0;
+    for (int i = 0; i < 400; i++) {
+      t += stp;
+      vec2 p = v_uv + u_dir * t * tx;
+      if (p.x < 0.0 || p.y < 0.0 || p.x > 1.0 || p.y > 1.0) break;
+      float ray = h0 + t * u_px * u_tanAlt;
+      if (ray > u_maxE) break;
+      if (elev(p) > ray + 1.0) { shadow = 1.0; break; }
+      stp = 1.0 + t * 0.02;
+    }
+  }
+  float a = shadow;
+  if (u_mode > 0.5 && shadow < 0.5) a = 0.75 * (1.0 - clamp(lambert * 1.4, 0.0, 1.0));
+  a *= u_opacity;
+  gl_FragColor = vec4(u_color * a, a);
+}`;
+
+let prog, tex, uni = {};
+function initGL() {
+  const sh = (type, src) => {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  };
+  prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, "a_pos");
+  gl.enableVertexAttribArray(loc);
+  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  for (const u of ["u_dem", "u_size", "u_dir", "u_sun", "u_tanAlt", "u_px", "u_maxE", "u_night", "u_mode", "u_opacity", "u_color"])
+    uni[u] = gl.getUniformLocation(prog, u);
+  tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]])
+    gl.texParameteri(gl.TEXTURE_2D, k, v);
+  gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
+}
+const MAX_TEX = gl ? Math.min(3072, gl.getParameter(gl.MAX_TEXTURE_SIZE)) : 0;
+
+// ---------- Grille d'élévation (tuiles Terrarium) ----------
+const demCanvas = document.createElement("canvas");
+const dctx = demCanvas.getContext("2d", { willReadFrequently: true });
+let grid = null, loadToken = 0;
+const tileCache = new Map();
+
+function loadTile(z, x, y) {
+  const n = 1 << z, xx = ((x % n) + n) % n, key = `${z}/${xx}/${y}`;
+  if (tileCache.has(key)) return tileCache.get(key);
+  const p = new Promise(res => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => res(img);
+    img.onerror = () => res(null);
+    img.src = `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${key}.png`;
+  });
+  tileCache.set(key, p);
+  if (tileCache.size > 500) tileCache.delete(tileCache.keys().next().value);
+  return p;
+}
+
+function neededRange() {
+  const b = map.getBounds(), c = map.getCenter();
+  for (let z = Math.min(13, Math.max(5, Math.round(map.getZoom()))); ; z--) {
+    const n = 1 << z;
+    const m = Math.min(4, Math.max(1, Math.ceil(REACH / (EARTH * Math.cos(c.lat * rad) / n))));
+    const nw = map.project(b.getNorthWest(), z), se = map.project(b.getSouthEast(), z);
+    const ix0 = Math.floor(nw.x / 256), ix1 = Math.floor(se.x / 256);
+    const iy0 = Math.max(0, Math.floor(nw.y / 256)), iy1 = Math.min(n - 1, Math.floor(se.y / 256));
+    const x0 = ix0 - m, y0 = Math.max(0, iy0 - m);
+    const nx = ix1 + m - x0 + 1, ny = Math.min(n - 1, iy1 + m) - y0 + 1;
+    if ((nx * 256 <= MAX_TEX && ny * 256 <= MAX_TEX) || z <= 3) return { z, x0, y0, nx, ny, ix0, ix1, iy0, iy1 };
+  }
+}
+
+async function loadGrid() {
+  if (!gl) return;
+  const r = neededRange();
+  if (grid && grid.z === r.z && r.ix0 > grid.x0 && r.ix1 < grid.x0 + grid.nx - 1 &&
+      r.iy0 >= grid.y0 && r.iy1 <= grid.y0 + grid.ny - 1) return;  // la vue est déjà couverte
+  const tok = ++loadToken;
+  setStatus("Chargement du relief…");
+  const jobs = [];
+  for (let j = 0; j < r.ny; j++) for (let i = 0; i < r.nx; i++)
+    jobs.push(loadTile(r.z, r.x0 + i, r.y0 + j).then(img => ({ i, j, img })));
+  const tiles = await Promise.all(jobs);
+  if (tok !== loadToken) return;
+  const W = r.nx * 256, H = r.ny * 256;
+  demCanvas.width = W; demCanvas.height = H;
+  dctx.fillStyle = "rgb(128,0,0)";  // 0 m
+  dctx.fillRect(0, 0, W, H);
+  for (const t of tiles) if (t.img) dctx.drawImage(t.img, t.i * 256, t.j * 256);
+  let data;
+  try { data = dctx.getImageData(0, 0, W, H).data; }
+  catch (e) { setStatus("Relief bloqué par le navigateur (CORS)"); return; }
+  const E = new Float32Array(W * H);
+  let maxE = -1e9;
+  for (let k = 0, p = 0; k < E.length; k++, p += 4) {
+    const h = data[p] * 256 + data[p + 1] + data[p + 2] / 256 - 32768;
+    E[k] = h; if (h > maxE) maxE = h;
+  }
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, demCanvas);
+  glc.width = W; glc.height = H;
+  const nwLL = map.unproject([r.x0 * 256, r.y0 * 256], r.z);
+  const seLL = map.unproject([(r.x0 + r.nx) * 256, (r.y0 + r.ny) * 256], r.z);
+  const center = L.latLng((nwLL.lat + seLL.lat) / 2, (nwLL.lng + seLL.lng) / 2);
+  grid = { ...r, W, H, E, maxE, center, px: EARTH * Math.cos(center.lat * rad) / (256 * (1 << r.z)) };
+  overlay.setBounds(L.latLngBounds(nwLL, seLL));
+  const missing = tiles.filter(t => !t.img).length;
+  setStatus(`Relief ~${Math.round(grid.px)} m/px` + (missing ? ` · ${missing} tuile(s) manquante(s)` : ""));
+  computeDay();
+  requestRender();
+}
+
+// ---------- Test d'ombre côté CPU (pour le lieu suivi) ----------
+function shadedAt(ix, iy, sun) {
+  if (sun.alt <= 0) return true;
+  const { E, W, H, px, maxE } = grid, at = (x, y) => E[y * W + x];
+  const h0 = at(ix, iy);
+  const hl = at(Math.max(ix - 1, 0), iy), hr = at(Math.min(ix + 1, W - 1), iy);
+  const hu = at(ix, Math.max(iy - 1, 0)), hd = at(ix, Math.min(iy + 1, H - 1));
+  const nx = (hl - hr) / (2 * px), ny = (hd - hu) / (2 * px), nl = Math.hypot(nx, ny, 1);
+  const ca = Math.cos(sun.alt);
+  const lambert = (nx * ca * Math.sin(sun.az) + ny * ca * Math.cos(sun.az) + Math.sin(sun.alt)) / nl;
+  if (lambert <= 0) return true;
+  const dx = Math.sin(sun.az), dy = -Math.cos(sun.az), tanA = Math.tan(sun.alt);
+  let t = 0, stp = 1;
+  for (let i = 0; i < 400; i++) {
+    t += stp;
+    const x = Math.round(ix + dx * t), y = Math.round(iy + dy * t);
+    if (x < 0 || y < 0 || x >= W || y >= H) break;
+    const ray = h0 + t * px * tanA;
+    if (ray > maxE) break;
+    if (at(x, y) > ray + 1) return true;
+    stp = 1 + t * 0.02;
+  }
+  return false;
+}
+
+function pointPixel(lat, lon) {
+  if (!grid) return null;
+  const p = map.project([lat, lon], grid.z);
+  const ix = Math.floor(p.x - grid.x0 * 256), iy = Math.floor(p.y - grid.y0 * 256);
+  return (ix >= 0 && iy >= 0 && ix < grid.W && iy < grid.H) ? { ix, iy } : null;
+}
+
+// Séries de la journée au lieu suivi : hauteur du soleil, soleil/ombre (pas de 5 min), heures clés
+function computeDay() {
+  const { lat, lon } = state.place;
+  const alts = new Float32Array(288);
+  const pix = pointPixel(lat, lon);
+  const lit = pix ? new Uint8Array(288) : null;
+  for (let s = 0; s < 288; s++) {
+    const sun = sunPosition(dateAt(s * 5), lat, lon);
+    alts[s] = sun.alt;
+    if (lit) lit[s] = shadedAt(pix.ix, pix.iy, sun) ? 0 : 1;
+  }
+  state.sunSeries = alts;
+  state.pointSeries = lit;
+  state.pointElev = pix ? grid.E[pix.iy * grid.W + pix.ix] : null;
+  // lever / coucher (horizon plat) et crépuscule civil (−6°)
+  let rise = null, set = null, dawn = null, dusk = null, len = 0;
+  for (let m = 0; m < 1440; m++) {
+    const a = sunPosition(dateAt(m), lat, lon).alt / rad;
+    if (a > 0) { len++; if (rise === null) rise = m; set = m + 1; }
+    if (a > -6) { if (dawn === null) dawn = m; dusk = m + 1; }
+  }
+  const t = m => (m === null ? "–" : fmtMin(Math.min(m, 1439)));
+  $("rRise").textContent = rise === 0 ? "–" : t(rise);
+  $("rSet").textContent = set === 1440 ? "–" : t(set);
+  $("rDawn").textContent = dawn === 0 ? "–" : t(dawn);
+  $("rDusk").textContent = dusk === 1440 ? "–" : t(dusk);
+  $("rLen").textContent = fmtDur(len);
+}
+
+// ---------- Rendu ----------
+let rafPending = false;
+function requestRender() { if (!rafPending) { rafPending = true; requestAnimationFrame(render); } }
+
+function render() {
+  rafPending = false;
+  const d = dateAt(state.minute);
+  const c = grid ? grid.center : map.getCenter();
+  const sun = sunPosition(d, c.lat, c.lng);
+  const sunHere = sunPosition(d, state.place.lat, state.place.lon);
+  const altDeg = sunHere.alt / rad;
+  $("timeLabel").textContent = fmtMin(state.minute);
+  $("timeLabel").title = `Heure locale (${state.tz})`;
+  $("rAlt").textContent = `${altDeg.toFixed(1)}°`;
+  $("rAz").textContent = `${Math.round(sunHere.az / rad)}°`;
+  $("rPhase").textContent = phaseName(altDeg, sunHere.az);
+  // nuit : basée sur le soleil au centre de la vue
+  nightEl.style.opacity = (nightLevel(sun.alt / rad) * NIGHT_MAX).toFixed(3);
+  if (grid && gl) {
+    gl.viewport(0, 0, grid.W, grid.H);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    const ca = Math.cos(sun.alt);
+    gl.uniform1i(uni.u_dem, 0);
+    gl.uniform2f(uni.u_size, grid.W, grid.H);
+    gl.uniform2f(uni.u_dir, Math.sin(sun.az), -Math.cos(sun.az));
+    gl.uniform3f(uni.u_sun, ca * Math.sin(sun.az), ca * Math.cos(sun.az), Math.sin(sun.alt));
+    gl.uniform1f(uni.u_tanAlt, Math.tan(Math.max(sun.alt, 0.0001)));
+    gl.uniform1f(uni.u_px, grid.px);
+    gl.uniform1f(uni.u_maxE, grid.maxE);
+    gl.uniform1f(uni.u_night, sun.alt <= 0 ? 1 : 0);
+    gl.uniform1f(uni.u_mode, state.mode);
+    gl.uniform1f(uni.u_opacity, state.opacity);
+    gl.uniform3f(uni.u_color, 22 / 255, 26 / 255, 64 / 255);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  drawStrip();
+  renderPlace();
+}
+
+const hexRgb = h => { const n = parseInt(h.replace("#", ""), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
+const mix = (a, b, k) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(",")})`;
+
+const stripCanvas = $("strip"), sctx = stripCanvas.getContext("2d");
+function drawStrip() {
+  const dpr = window.devicePixelRatio || 1, w = stripCanvas.clientWidth, h = stripCanvas.clientHeight;
+  if (!w || !state.sunSeries) return;
+  if (stripCanvas.width !== Math.round(w * dpr)) { stripCanvas.width = Math.round(w * dpr); stripCanvas.height = Math.round(h * dpr); }
+  sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const cs = getComputedStyle(document.documentElement), tok = n => cs.getPropertyValue(n).trim();
+  const sky = hexRgb(tok("--sky")), night = hexRgb(tok("--night"));
+  const series = state.sunSeries, lit = state.pointSeries;
+  const sw = w / 288, barTop = lit ? h * 0.58 : h;
+  sctx.clearRect(0, 0, w, h);
+  for (let s = 0; s < 288; s++) {
+    sctx.fillStyle = mix(sky, night, nightLevel(series[s] / rad));
+    sctx.fillRect(s * sw, 0, sw + 0.6, barTop);
+  }
+  // courbe de hauteur du soleil (0 à 70°)
+  sctx.beginPath();
+  for (let s = 0; s < 288; s++) {
+    const y = barTop - Math.max(0, series[s] / rad) / 70 * (barTop - 4) - 1;
+    s ? sctx.lineTo(s * sw + sw / 2, y) : sctx.moveTo(sw / 2, y);
+  }
+  sctx.strokeStyle = tok("--sun"); sctx.lineWidth = 1.6; sctx.stroke();
+  if (lit) {
+    for (let s = 0; s < 288; s++) {
+      sctx.fillStyle = series[s] <= 0 ? mix(sky, night, nightLevel(series[s] / rad)) : lit[s] ? tok("--sun") : tok("--shade");
+      sctx.fillRect(s * sw, barTop + 2, sw + 0.6, h - barTop - 2);
+    }
+  }
+  const x = state.minute / 1440 * w;
+  sctx.fillStyle = tok("--fg");
+  sctx.fillRect(x - 1, 0, 2, h);
+}
+
+function renderPlace() {
+  const el = $("placeInfo"), p = state.place, lit = state.pointSeries;
+  const fav = isFavorite(p);
+  $("btnStar").textContent = fav ? "★" : "☆";
+  $("btnStar").classList.toggle("on", fav);
+  $("btnStar").title = fav ? "Retirer ce lieu des favoris" : "Ajouter ce lieu aux favoris";
+  const head = `<strong></strong> <span class="sub"></span><br>`;
+  let body;
+  if (!lit) body = "Lieu hors de la zone de relief chargée. Rapproche la vue.";
+  else {
+    const s = Math.floor(state.minute / 5);
+    let n = 0, first = -1, last = -1;
+    lit.forEach((v, i) => { if (v) { n++; if (first < 0) first = i; last = i; } });
+    const now = state.sunSeries[s] <= 0 ? '<span class="pill night">nuit</span>'
+      : lit[s] ? '<span class="pill sun">au soleil</span>' : '<span class="pill shade">à l\'ombre</span>';
+    body = `${now} <b>${Math.round(state.pointElev)} m</b> · ` +
+      (n ? `soleil direct <b>${fmtDur(n * 5)}</b>, <b>${fmtMin(first * 5)}</b>–<b>${fmtMin(last * 5 + 5)}</b>` : "aucun soleil direct ce jour");
+  }
+  el.innerHTML = head + body;
+  el.querySelector("strong").textContent = p.name;
+  el.querySelector(".sub").textContent = [p.region, p.tz !== browserTz ? p.tz : ""].filter(Boolean).join(" · ");
+}
+
+// ---------- Lieux et favoris ----------
+const sameLoc = (a, b) => a && b && Math.abs(a.lat - b.lat) < 1e-3 && Math.abs(a.lon - b.lon) < 1e-3;
+const isFavorite = p => state.favs.some(f => sameLoc(f, p));
+let marker = null;
+
+function setPlace(p, fly = true) {
+  state.place = p;
+  if (p.tz && p.tz !== state.tz) { state.tz = p.tz; dayCache = null; }
+  if (marker) marker.setLatLng([p.lat, p.lon]);
+  else marker = L.circleMarker([p.lat, p.lon], { radius: 7, color: "#fff", weight: 2, fillColor: "#e39b26", fillOpacity: 1, interactive: false }).addTo(map);
+  if (fly) map.setView([p.lat, p.lon], Math.max(map.getZoom(), 13));
+  save();
+  renderFavs();
+  computeDay();
+  requestRender();
+}
+
+// Nom (Nominatim) et fuseau horaire (Open-Meteo) d'un point quelconque
+async function resolvePoint(lat, lon) {
+  const [rev, meta] = await Promise.all([
+    fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=14&accept-language=fr`).then(r => r.ok ? r.json() : null).catch(() => null),
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&timezone=auto&forecast_days=1`).then(r => r.ok ? r.json() : null).catch(() => null),
+  ]);
+  const a = rev?.address || {};
+  return {
+    name: a.peak || a.city || a.town || a.village || a.hamlet || a.municipality || a.suburb || a.county || rev?.name || `${lat.toFixed(3)}, ${lon.toFixed(3)}`,
+    region: [a.state, a.country].filter(Boolean).join(", "),
+    lat: +lat.toFixed(4), lon: +lon.toFixed(4),
+    tz: meta?.timezone || state.tz,
+  };
+}
+async function pickPoint(lat, lon, fly) {
+  setPlace({ name: `${lat.toFixed(3)}, ${lon.toFixed(3)}`, region: "", lat: +lat.toFixed(4), lon: +lon.toFixed(4), tz: state.tz }, fly);
+  const p = await resolvePoint(lat, lon);
+  if (sameLoc(p, state.place)) setPlace(p, false);
+}
+map.on("click", e => pickPoint(e.latlng.lat, e.latlng.lng, false));
+
+$("btnGps").onclick = () => {
+  if (!navigator.geolocation) { setStatus("Géolocalisation indisponible"); return; }
+  setStatus("Localisation…");
+  navigator.geolocation.getCurrentPosition(
+    pos => { setStatus(""); pickPoint(pos.coords.latitude, pos.coords.longitude, true); },
+    err => setStatus(err.code === 1 ? "Position refusée" : "Position introuvable"),
+    { enableHighAccuracy: true, timeout: 10000 });
+};
+
+function setFavs(list) { state.favs = list; save(); renderFavs(); renderPlace(); }
+$("btnStar").onclick = () => {
+  const p = state.place;
+  setFavs(isFavorite(p) ? state.favs.filter(f => !sameLoc(f, p)) : [...state.favs, { ...p }]);
+};
+
+// Favoris : appui = y aller, ✕ = supprimer, appui long = renommer, glisser = réordonner
+function renderFavs() {
+  const box = $("favs");
+  box.innerHTML = "";
+  state.favs.forEach((f, i) => {
+    const chip = document.createElement("span");
+    chip.className = "chip" + (sameLoc(f, state.place) ? " active" : "");
+    chip.dataset.i = i;
+    const main = document.createElement("button");
+    main.className = "fav-main";
+    main.textContent = `★ ${f.name}`;
+    main.title = "Appui : y aller · Appui long : renommer · Glisser : réordonner";
+    const del = document.createElement("button");
+    del.className = "fav-del";
+    del.textContent = "✕";
+    del.title = `Retirer ${f.name} des favoris`;
+    del.setAttribute("aria-label", del.title);
+    del.onclick = () => setFavs(state.favs.filter(x => x !== f));
+    chip.append(main, del);
+    chipGestures(chip, main, f);
+    box.append(chip);
+  });
+}
+function renameFav(chip, fav) {
+  const input = document.createElement("input");
+  input.value = fav.name;
+  input.setAttribute("aria-label", "Nouveau nom");
+  chip.replaceChildren(input);
+  input.focus(); input.select();
+  let done = false;
+  const finish = ok => {
+    if (done) return; done = true;
+    const name = input.value.trim();
+    if (ok && name) {
+      const next = { ...fav, name };
+      if (sameLoc(fav, state.place)) state.place = { ...state.place, name };
+      setFavs(state.favs.map(f => (f === fav ? next : f)));
+    } else renderFavs();
+  };
+  input.onkeydown = e => { if (e.key === "Enter") finish(true); if (e.key === "Escape") finish(false); };
+  input.onblur = () => finish(true);
+}
+function chipGestures(chip, main, fav) {
+  let g = null;
+  main.addEventListener("pointerdown", e => {
+    if (e.button > 0) return;
+    try { main.setPointerCapture(e.pointerId); } catch { /* pointeur déjà parti */ }
+    g = { id: e.pointerId, x0: e.clientX, y0: e.clientY, moved: false, long: false, over: null };
+    g.timer = setTimeout(() => { if (g && !g.moved) { g.long = true; navigator.vibrate?.(25); renameFav(chip, fav); } }, 500);
+  });
+  main.addEventListener("pointermove", e => {
+    if (!g || e.pointerId !== g.id || g.long) return;
+    const dx = e.clientX - g.x0, dy = e.clientY - g.y0;
+    if (!g.moved && Math.hypot(dx, dy) < 8) return;
+    if (!g.moved) { g.moved = true; clearTimeout(g.timer); chip.classList.add("dragging"); }
+    chip.style.transform = `translate(${dx}px, ${dy}px)`;
+    chip.style.pointerEvents = "none";
+    const over = document.elementFromPoint(e.clientX, e.clientY)?.closest("#favs .chip");
+    chip.style.pointerEvents = "";
+    g.over = over && over !== chip ? +over.dataset.i : null;
+    document.querySelectorAll("#favs .chip").forEach(c => c.classList.toggle("drop", +c.dataset.i === g.over));
+  });
+  const end = e => {
+    if (!g || e.pointerId !== g.id) return;
+    clearTimeout(g.timer);
+    const { moved, long, over } = g;
+    g = null;
+    chip.classList.remove("dragging");
+    chip.style.transform = "";
+    if (long) return;
+    if (moved) {
+      if (over != null) {
+        const list = [...state.favs];
+        list.splice(list.indexOf(fav), 1);
+        list.splice(over, 0, fav);
+        setFavs(list);
+      } else renderFavs();
+      return;
+    }
+    if (e.type === "pointerup") setPlace({ ...fav });
+  };
+  main.addEventListener("pointerup", end);
+  main.addEventListener("pointercancel", end);
+  main.addEventListener("contextmenu", e => e.preventDefault());
+  main.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setPlace({ ...fav }); } });
+}
+
+// Recherche (géocodage Open-Meteo)
+let searchTimer, searchAbort;
+const results = $("results");
+$("search").addEventListener("input", e => {
+  clearTimeout(searchTimer);
+  const q = e.target.value.trim();
+  if (q.length < 2) { results.hidden = true; return; }
+  searchTimer = setTimeout(() => runSearch(q), 300);
+});
+$("search").addEventListener("keydown", e => {
+  if (e.key === "Enter") { e.preventDefault(); results.querySelector(".res-main")?.click(); }
+  if (e.key === "Escape") results.hidden = true;
+  if (e.key === "ArrowDown") { e.preventDefault(); results.querySelector(".res-main")?.focus(); }
+});
+document.addEventListener("click", e => { if (!e.target.closest(".search")) results.hidden = true; });
+
+async function runSearch(q) {
+  searchAbort?.abort();
+  searchAbort = new AbortController();
+  try {
+    const r = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=8&language=fr&format=json`, { signal: searchAbort.signal });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const list = ((await r.json()).results || []).map(x => ({
+      name: x.name, region: [x.admin1, x.country].filter(Boolean).join(", "),
+      lat: x.latitude, lon: x.longitude, tz: x.timezone, elevation: x.elevation,
+    }));
+    results.innerHTML = "";
+    if (!list.length) results.innerHTML = '<li class="sub" style="padding:8px">Aucun lieu trouvé.</li>';
+    for (const p of list) {
+      const li = document.createElement("li");
+      const b = document.createElement("button");
+      b.className = "res-main";
+      b.innerHTML = "<span></span><span class=\"sub\"></span>";
+      b.firstChild.textContent = p.name;
+      b.lastChild.textContent = [p.region, p.elevation != null ? `${Math.round(p.elevation)} m` : ""].filter(Boolean).join(" · ");
+      b.onclick = () => { results.hidden = true; $("search").value = ""; delete p.elevation; setPlace(p); };
+      b.onkeydown = e => {
+        if (e.key === "ArrowDown") { e.preventDefault(); li.nextElementSibling?.querySelector(".res-main")?.focus(); }
+        if (e.key === "ArrowUp") { e.preventDefault(); (li.previousElementSibling?.querySelector(".res-main") || $("search")).focus(); }
+      };
+      const star = document.createElement("button");
+      star.className = "res-star";
+      const sync = () => {
+        const on = isFavorite(p);
+        star.textContent = on ? "★" : "☆";
+        star.classList.toggle("on", on);
+        star.title = on ? "Retirer des favoris" : "Ajouter aux favoris";
+        star.setAttribute("aria-label", star.title);
+      };
+      sync();
+      star.onclick = () => {
+        const { elevation, ...fav } = p;
+        setFavs(isFavorite(p) ? state.favs.filter(f => !sameLoc(f, p)) : [...state.favs, fav]);
+        sync();
+      };
+      li.append(b, star);
+      results.append(li);
+    }
+    results.hidden = false;
+  } catch (e) {
+    if (e.name !== "AbortError") { results.innerHTML = `<li class="sub" style="padding:8px">Recherche impossible : ${e.message}</li>`; results.hidden = false; }
+  }
+}
+
+// ---------- Interactions ----------
+const dayInput = $("day"), timeInput = $("time");
+dayInput.addEventListener("input", () => setDate(state.year, +dayInput.value));
+$("dateInput").addEventListener("change", e => {
+  const v = e.target.value; if (!v) return;
+  const [y, m, d] = v.split("-").map(Number);
+  setDate(y, Math.round((Date.UTC(y, m - 1, d) - Date.UTC(y, 0, 1)) / 86400000));
+});
+$("prevDay").onclick = () => setDate(state.year, state.day - 1);
+$("nextDay").onclick = () => setDate(state.year, state.day + 1);
+$("today").onclick = () => setToday();
+timeInput.addEventListener("input", () => { state.minute = +timeInput.value; requestRender(); });
+$("opacity").addEventListener("input", e => { state.opacity = +e.target.value; save(); requestRender(); });
+$("base").addEventListener("change", e => setBase(e.target.value));
+function setMode(m) {
+  state.mode = m;
+  $("modeHard").setAttribute("aria-pressed", m === 0); $("modeSoft").setAttribute("aria-pressed", m === 1);
+  save(); requestRender();
+}
+$("modeHard").onclick = () => setMode(0);
+$("modeSoft").onclick = () => setMode(1);
+$("collapse").onclick = () => {
+  const c = $("panel").classList.toggle("collapsed");
+  $("collapse").setAttribute("aria-expanded", !c);
+};
+
+let playing = null, lastTick = 0;
+function setPlay(kind) {
+  playing = playing === kind ? null : kind;
+  $("playDay").setAttribute("aria-pressed", playing === "day");
+  $("playYear").setAttribute("aria-pressed", playing === "year");
+  if (playing) requestAnimationFrame(tick);
+}
+function tick(ts) {
+  if (!playing) return;
+  if (ts - lastTick > (playing === "day" ? 45 : 90)) {
+    lastTick = ts;
+    if (playing === "day") { state.minute = (state.minute + 5) % 1440; timeInput.value = state.minute; render(); }
+    else setDate(state.year, (state.day + 1) % (+dayInput.max + 1));
+  }
+  requestAnimationFrame(tick);
+}
+$("playDay").onclick = () => setPlay("day");
+$("playYear").onclick = () => setPlay("year");
+
+let moveTimer;
+map.on("moveend", () => { clearTimeout(moveTimer); moveTimer = setTimeout(loadGrid, 150); });
+window.addEventListener("resize", drawStrip);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawStrip);
+
+// ---------- Démarrage ----------
+$("opacity").value = state.opacity;
+setMode(state.mode);
+if (!gl) setStatus("WebGL indisponible sur ce navigateur");
+else try { initGL(); } catch (e) { setStatus("Erreur WebGL"); console.error(e); }
+const nowParts = setToday();
+state.minute = Math.round((nowParts.hour * 60 + nowParts.minute) / 5) * 5 % 1440;
+// si on ouvre la page la nuit, on se place à 10h
+if (sunPosition(dateAt(state.minute), state.place.lat, state.place.lon).alt <= 0) state.minute = 600;
+timeInput.value = state.minute;
+setPlace(state.place, false);
+loadGrid();
+</script>
+</body>
+</html>
