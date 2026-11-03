@@ -48,16 +48,20 @@ body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); fon
 .settings[hidden] { display: none }
 .settings label { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted) }
 .settings input[type=range] { width: 120px }
-.leaflet-control-settings a { font-size: 18px; line-height: 30px; text-align: center; cursor: pointer; color: #1d2130 }
+/* Boutons de carte : même taille que le zoom (30 px), icône centrée */
+.leaflet-bar a.map-btn { display: grid; place-items: center; cursor: pointer; color: #333 }
+.leaflet-bar a.map-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round }
+.leaflet-bar a.map-btn.on { color: #1a73e8 }
+.leaflet-control-layers-toggle, .leaflet-touch .leaflet-control-layers-toggle { width: 30px; height: 30px; background-size: 18px }
+.leaflet-top { z-index: 1001 }  /* la liste des fonds passe au-dessus du panneau */
 .panel.collapsed .more { display: none }
-.panel.collapsed { padding-block: 10px; gap: 0 }
+.panel.collapsed { gap: 2px }
+/* Barre de saisie du panneau : glisser vers le haut / le bas pour l'agrandir / le réduire */
+.grab { position: relative; height: 16px; margin: -6px 0 -4px; touch-action: none; cursor: grab }
+.grab::before { content: ""; position: absolute; left: 50%; top: 5px; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--line) }
+#collapse { position: absolute; right: -4px; top: -2px; height: 22px; min-width: 30px; border: 0 }
 #collapse svg { transition: transform .2s }
 .panel.collapsed #collapse svg { transform: rotate(180deg) }
-/* Recherche d'un lieu : le panneau passe en haut de l'écran (le clavier du téléphone ne le cache
-   plus) et ne montre que le champ et ses résultats */
-.panel.searching { top: calc(12px + env(safe-area-inset-top, 0px)); bottom: auto }
-.panel.searching > :not(.place) { display: none }
-.panel.searching .results { position: static; margin-top: 6px; max-height: 50vh; box-shadow: none }
 
 button { font: inherit; color: var(--fg) }
 .icon-btn, .play, .step {
@@ -79,7 +83,7 @@ button { font: inherit; color: var(--fg) }
   border: 1px solid var(--line); background: transparent; color: var(--fg); font: inherit;
 }
 .results {
-  position: absolute; left: 0; right: 0; top: 34px; z-index: 5; margin: 0; padding: 4px; list-style: none;
+  position: absolute; left: 0; right: 0; bottom: 34px; z-index: 5; margin: 0; padding: 4px; list-style: none;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px; max-height: 260px; overflow: auto;
   box-shadow: 0 8px 20px rgba(10,12,30,.25);
 }
@@ -142,6 +146,9 @@ input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
 <div id="map"></div>
 
 <aside class="panel" id="panel" aria-label="Shadows Map">
+  <div class="grab" id="grab" title="Glisser vers le haut ou le bas pour agrandir ou réduire">
+    <button class="icon-btn" id="collapse" title="Réduire / agrandir le panneau" aria-expanded="true"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+  </div>
   <div class="place more">
     <div class="search">
       <input id="search" type="search" placeholder="Rechercher un lieu…" autocomplete="off" enterkeyhint="search" aria-label="Rechercher un lieu">
@@ -170,7 +177,6 @@ input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
       <output id="timeLabel">–</output>
       <span id="status"></span>
       <button class="play" id="playDay" aria-pressed="false" title="Faire défiler la journée"><svg viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg></button>
-      <button class="icon-btn" id="collapse" title="Réduire / agrandir le panneau" aria-expanded="true"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
     </div>
     <div class="strip">
       <canvas id="strip"></canvas>
@@ -315,7 +321,6 @@ const BASES = [
     ["ign", "France · Plan IGN", geopf("GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2", "image/png"), 19, "© IGN Géoplateforme"],
     ["ignphoto", "France · Photo aérienne IGN", geopf("ORTHOIMAGERY.ORTHOPHOTOS", "image/jpeg"), 19, "© IGN Géoplateforme"],
     ["swiss", "Suisse · swisstopo", "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.pixelkarte-farbe/default/current/3857/{z}/{x}/{y}.jpeg", 19, "© swisstopo"],
-    ["swiss10", "Suisse · swisstopo 1:10'000", "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.landeskarte-farbe-10/default/current/3857/{z}/{x}/{y}.png", 19, "© swisstopo"],
     ["austria", "Autriche · basemap.at", "https://mapsneu.wien.gv.at/basemap/geolandbasemap/normal/google3857/{z}/{y}/{x}.png", 19, "© basemap.at"],
     ["germany", "Allemagne / Europe · TopPlusOpen", "https://sgx.geodatenzentrum.de/wmts_topplus_open/tile/1.0.0/web/default/WEBMERCATOR/{z}/{y}/{x}.png", 18, "© BKG (TopPlusOpen)"],
     ["spain", "Espagne · IGN MTN", "https://www.ign.es/wmts/mapa-raster?service=WMTS&request=GetTile&version=1.0.0&format=image/jpeg&layer=MTN&tilematrixset=GoogleMapsCompatible&style=default&tilematrix={z}&tilerow={y}&tilecol={x}", 19, "© IGN España"],
@@ -333,11 +338,20 @@ for (const g of BASES) for (const [id, label, url, maxZoom, attribution] of g.it
   baseLayers[label] = L.tileLayer(url, { maxZoom: MAX_ZOOM, maxNativeZoom: maxZoom, attribution });
   baseLayers[label].baseId = id;
 }
+// swisstopo : en zoom proche, la carte nationale 1:10'000 prend le relais (Suisse seulement ;
+// ailleurs la carte habituelle reste visible dessous)
+const SWISS_LABEL = "Suisse · swisstopo", LK10_FROM_ZOOM = 17;
+baseLayers[SWISS_LABEL] = L.layerGroup([
+  baseLayers[SWISS_LABEL],
+  L.tileLayer("https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.landeskarte-farbe-10/default/current/3857/{z}/{x}/{y}.png",
+    { minZoom: LK10_FROM_ZOOM, maxZoom: MAX_ZOOM, maxNativeZoom: 19, attribution: "© swisstopo" }),
+]);
+baseLayers[SWISS_LABEL].baseId = "swiss";
 
 // ---------- Carte ----------
 const map = L.map("map", { zoomControl: true, maxZoom: MAX_ZOOM }).setView([state.place.lat, state.place.lon], 12);
 map.attributionControl.addAttribution("Relief : Terrain Tiles (AWS / Mapzen)");
-L.control.layers(baseLayers, null, { position: "topright" }).addTo(map);
+const layersControl = L.control.layers(baseLayers, null, { position: "topright" }).addTo(map);
 let baseLayer = null;
 function setBase(id) {
   const layer = Object.values(baseLayers).find(l => l.baseId === id) || baseLayers.OpenTopoMap;
@@ -346,22 +360,41 @@ function setBase(id) {
   state.base = layer.baseId;
   save();
 }
-map.on("baselayerchange", e => { baseLayer = e.layer; state.base = e.layer.baseId; save(); });
+map.on("baselayerchange", e => { baseLayer = e.layer; state.base = e.layer.baseId; save(); layersControl.collapse(); });
 setBase(state.base);
 
-// Icône ⚙ : réglages d'affichage des ombres
-const SettingsControl = L.Control.extend({
-  onAdd() {
-    const box = L.DomUtil.create("div", "leaflet-bar leaflet-control leaflet-control-settings");
-    const a = L.DomUtil.create("a", "", box);
-    a.href = "#"; a.title = "Réglages d'affichage"; a.setAttribute("role", "button"); a.textContent = "⚙";
-    L.DomEvent.disableClickPropagation(box);
-    L.DomEvent.on(a, "click", e => { L.DomEvent.preventDefault(e); $("settings").hidden = !$("settings").hidden; });
-    return box;
-  },
-});
-new SettingsControl({ position: "topright" }).addTo(map);
+// Boutons de carte (même style que le zoom)
+const ICON_GEAR = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
+const ICON_LOCATE = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5" fill="currentColor"/><path d="M12 1v4M12 19v4M1 12h4M19 12h4"/></svg>';
+function mapButton(position, title, icon, onClick) {
+  const C = L.Control.extend({
+    onAdd() {
+      const box = L.DomUtil.create("div", "leaflet-bar leaflet-control");
+      const a = L.DomUtil.create("a", "map-btn", box);
+      a.href = "#"; a.title = title; a.setAttribute("role", "button"); a.setAttribute("aria-label", title); a.innerHTML = icon;
+      L.DomEvent.disableClickPropagation(box);
+      L.DomEvent.on(a, "click", e => { L.DomEvent.preventDefault(e); onClick(a); });
+      return box;
+    },
+  });
+  return new C({ position }).addTo(map);
+}
+// ⚙ : réglages d'affichage des ombres
+mapButton("topright", "Réglages d'affichage", ICON_GEAR, () => { $("settings").hidden = !$("settings").hidden; });
 map.on("click", () => { $("settings").hidden = true; });
+// Centrer la carte sur ma position (point bleu), sans changer le lieu suivi
+let meDot = null;
+mapButton("topleft", "Centrer sur ma position", ICON_LOCATE, a => {
+  if (!navigator.geolocation) { setStatus("Géolocalisation indisponible"); return; }
+  a.classList.add("on");
+  navigator.geolocation.getCurrentPosition(pos => {
+    const ll = [pos.coords.latitude, pos.coords.longitude];
+    if (meDot) meDot.setLatLng(ll);
+    else meDot = L.circleMarker(ll, { radius: 7, color: "#fff", weight: 2, fillColor: "#1a73e8", fillOpacity: 1, interactive: false }).addTo(map);
+    map.setView(ll, Math.max(map.getZoom(), 14));
+  }, err => { a.classList.remove("on"); setStatus(err.code === 1 ? "Position refusée" : "Position introuvable"); },
+  { enableHighAccuracy: true, timeout: 10000 });
+});
 const nightEl = document.createElement("div");
 nightEl.id = "night";
 map.getContainer().append(nightEl);
@@ -629,8 +662,8 @@ function render() {
 const hexRgb = h => { const n = parseInt(h.replace("#", ""), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
 const mix = (a, b, k) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(",")})`;
 
-// Échelle de la barre horaire : les créneaux de 5 min où il fait nuit toute l'année au lieu suivi
-// (soleil sous −6°, heure locale) sont compressés pour laisser la place aux heures de jour.
+// Échelle de la barre horaire : les créneaux de 5 min où le soleil reste couché même le jour le plus
+// long de l'année au lieu suivi (heure locale) sont compressés pour laisser la place aux heures de jour.
 const NIGHT_WEIGHT = 0.12;
 const slotW = new Float32Array(288).fill(1), slotC = new Float32Array(289);
 let yearNightKey = "";
@@ -648,7 +681,7 @@ function computeYearNight() {
       if (a > maxAlt[s]) maxAlt[s] = a;
     }
   }
-  for (let s = 0; s < 288; s++) { slotW[s] = maxAlt[s] < -6 ? NIGHT_WEIGHT : 1; slotC[s + 1] = slotC[s] + slotW[s]; }
+  for (let s = 0; s < 288; s++) { slotW[s] = maxAlt[s] <= 0 ? NIGHT_WEIGHT : 1; slotC[s + 1] = slotC[s] + slotW[s]; }
 }
 const minToFrac = m => {
   const s = Math.min(287, Math.floor(m / 5));
@@ -888,15 +921,10 @@ $("search").addEventListener("input", e => {
 });
 $("search").addEventListener("keydown", e => {
   if (e.key === "Enter") { e.preventDefault(); results.querySelector(".res-main")?.click(); }
-  if (e.key === "Escape") { results.hidden = true; e.target.blur(); setSearching(false); }
+  if (e.key === "Escape") results.hidden = true;
   if (e.key === "ArrowDown") { e.preventDefault(); results.querySelector(".res-main")?.focus(); }
 });
 document.addEventListener("click", e => { if (!e.target.closest(".search")) results.hidden = true; });
-const setSearching = on => $("panel").classList.toggle("searching", on);
-$("search").addEventListener("focus", () => setSearching(true));
-document.querySelector(".place").addEventListener("focusout", () => setTimeout(() => {
-  if (!document.querySelector(".place").contains(document.activeElement)) setSearching(false);
-}, 200));
 
 async function runSearch(q) {
   searchAbort?.abort();
@@ -917,7 +945,7 @@ async function runSearch(q) {
       b.innerHTML = "<span></span><span class=\"sub\"></span>";
       b.firstChild.textContent = p.name;
       b.lastChild.textContent = [p.region, p.elevation != null ? `${Math.round(p.elevation)} m` : ""].filter(Boolean).join(" · ");
-      b.onclick = () => { results.hidden = true; $("search").value = ""; setSearching(false); delete p.elevation; setPlace(p); };
+      b.onclick = () => { results.hidden = true; $("search").value = ""; delete p.elevation; setPlace(p); };
       b.onkeydown = e => {
         if (e.key === "ArrowDown") { e.preventDefault(); li.nextElementSibling?.querySelector(".res-main")?.focus(); }
         if (e.key === "ArrowUp") { e.preventDefault(); (li.previousElementSibling?.querySelector(".res-main") || $("search")).focus(); }
@@ -966,10 +994,31 @@ function setMode(m) {
 }
 $("modeHard").onclick = () => setMode(0);
 $("modeSoft").onclick = () => setMode(1);
-$("collapse").onclick = () => {
-  const c = $("panel").classList.toggle("collapsed");
+function setCollapsed(c) {
+  $("panel").classList.toggle("collapsed", c);
   $("collapse").setAttribute("aria-expanded", !c);
-};
+  drawStrip();
+}
+$("collapse").onclick = e => { e.stopPropagation(); setCollapsed(!$("panel").classList.contains("collapsed")); };
+// Glisser la barre du haut : vers le bas = réduire, vers le haut = agrandir
+{
+  let y0 = null;
+  const grab = $("grab");
+  grab.addEventListener("pointerdown", e => {
+    if (e.target.closest("#collapse")) return;
+    y0 = e.clientY;
+    try { grab.setPointerCapture(e.pointerId); } catch { /* pointeur déjà parti */ }
+  });
+  grab.addEventListener("pointerup", e => {
+    if (y0 === null) return;
+    const dy = e.clientY - y0;
+    y0 = null;
+    if (dy > 20) setCollapsed(true);
+    else if (dy < -20) setCollapsed(false);
+    else setCollapsed(!$("panel").classList.contains("collapsed"));  // simple appui
+  });
+  grab.addEventListener("pointercancel", () => { y0 = null; });
+}
 
 let playing = null, lastTick = 0;
 function setPlay(kind) {
