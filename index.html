@@ -39,6 +39,7 @@ body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); fon
 .panel h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.01em }
 #status { font-size: 12px; color: var(--muted); text-align: right; flex: 1 }
 .panel.collapsed .more { display: none }
+.panel.collapsed { padding-block: 10px; gap: 0 }
 #collapse svg { transition: transform .2s }
 .panel.collapsed #collapse svg { transform: rotate(180deg) }
 
@@ -136,13 +137,12 @@ input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
 <div id="map"></div>
 
 <aside class="panel" id="panel" aria-label="Réglages soleil">
-  <header>
+  <header class="more">
     <h1>Shadows Map</h1>
     <span id="status">Chargement…</span>
-    <button class="icon-btn" id="collapse" title="Réduire / agrandir le panneau" aria-expanded="true"><svg viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></svg></button>
   </header>
 
-  <div class="place">
+  <div class="place more">
     <div class="search">
       <input id="search" type="search" placeholder="Rechercher un lieu…" autocomplete="off" enterkeyhint="search" aria-label="Rechercher un lieu">
       <ul id="results" class="results" hidden></ul>
@@ -151,9 +151,9 @@ input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
     <button class="icon-btn" id="btnStar" title="Ajouter ce lieu aux favoris">☆</button>
   </div>
   <div id="favs" class="chips more" aria-label="Favoris"></div>
-  <div id="placeInfo">Clique sur la carte ou cherche un lieu.</div>
+  <div id="placeInfo" class="more">Clique sur la carte ou cherche un lieu.</div>
 
-  <div class="row">
+  <div class="row more">
     <div class="row-head">
       <span class="lab">Date</span>
       <span id="weekday"></span>
@@ -173,6 +173,7 @@ input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
       <span class="lab">Heure</span>
       <output id="timeLabel">–</output>
       <button class="play" id="playDay" aria-pressed="false" title="Faire défiler la journée"><svg viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg></button>
+      <button class="icon-btn" id="collapse" title="Réduire / agrandir le panneau" aria-expanded="true"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
     </div>
     <div class="strip">
       <canvas id="strip"></canvas>
@@ -294,7 +295,7 @@ try {
   const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
   if (s) Object.assign(state, { favs: s.favs || [], place: s.place || null, base: s.base || "topo", mode: s.mode || 0, opacity: s.opacity || 0.55 });
 } catch { /* ignore */ }
-if (!state.place) state.place = { name: "Chamonix-Mont-Blanc", region: "Auvergne-Rhône-Alpes, France", lat: 45.9237, lon: 6.8694, tz: "Europe/Paris" };
+if (!state.place) state.place = { name: "La Fouly", region: "Canton du Valais, Suisse", lat: 45.9336, lon: 7.0977, tz: "Europe/Zurich" };
 state.tz = state.place.tz || browserTz;
 
 // Heure locale du lieu (minutes depuis minuit) → instant réel
