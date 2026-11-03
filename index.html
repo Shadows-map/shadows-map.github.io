@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Shadows Map</title>
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1d2130">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
@@ -42,6 +46,11 @@ body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); fon
 .panel.collapsed { padding-block: 10px; gap: 0 }
 #collapse svg { transition: transform .2s }
 .panel.collapsed #collapse svg { transform: rotate(180deg) }
+/* Recherche d'un lieu : le panneau passe en haut de l'écran (le clavier du téléphone ne le cache
+   plus) et ne montre que le champ et ses résultats */
+.panel.searching { top: calc(12px + env(safe-area-inset-top, 0px)); bottom: auto }
+.panel.searching > :not(.place) { display: none }
+.panel.searching .results { position: static; margin-top: 6px; max-height: 50vh; box-shadow: none }
 
 button { font: inherit; color: var(--fg) }
 .icon-btn, .play, .step {
@@ -106,7 +115,8 @@ input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
 .strip { position: relative; height: 38px }
 .strip canvas { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 6px }
 .strip input { position: absolute; inset: 0; height: 100%; opacity: 0; cursor: ew-resize }
-.ticks { display: flex; justify-content: space-between; font-family: var(--font-num); font-size: 10px; color: var(--muted) }
+.ticks { position: relative; height: 12px; font-family: var(--font-num); font-size: 10px; color: var(--muted) }
+.ticks span { position: absolute; top: 0; white-space: nowrap }
 
 .readout { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px 4px; margin: 0 }
 .readout div { display: grid; gap: 2px; min-width: 0 }
@@ -177,9 +187,9 @@ input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
     </div>
     <div class="strip">
       <canvas id="strip"></canvas>
-      <input type="range" id="time" min="0" max="1435" step="5" aria-label="Heure de la journée">
+      <input type="range" id="time" min="0" max="1000" step="1" aria-label="Heure de la journée">
     </div>
-    <div class="ticks"><span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>24h</span></div>
+    <div class="ticks" id="ticks"></div>
   </div>
 
   <dl class="readout more">
@@ -567,6 +577,8 @@ function pointPixel(lat, lon) {
 // Séries de la journée au lieu suivi : hauteur du soleil, soleil/ombre (pas de 5 min), heures clés
 function computeDay() {
   const { lat, lon } = state.place;
+  computeYearNight();
+  syncTimeInput();
   const alts = new Float32Array(288);
   const pix = pointPixel(lat, lon);
   const lit = pix ? new Uint8Array(288) : null;
@@ -636,6 +648,57 @@ function render() {
 const hexRgb = h => { const n = parseInt(h.replace("#", ""), 16); return [n >> 16, (n >> 8) & 255, n & 255]; };
 const mix = (a, b, k) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * k)).join(",")})`;
 
+// Échelle de la barre horaire : les créneaux de 5 min où il fait nuit toute l'année au lieu suivi
+// (soleil sous −6°, heure locale) sont compressés pour laisser la place aux heures de jour.
+const NIGHT_WEIGHT = 0.12;
+const slotW = new Float32Array(288).fill(1), slotC = new Float32Array(289);
+let yearNightKey = "";
+function computeYearNight() {
+  const { lat, lon } = state.place, key = `${lat},${lon},${state.tz},${state.year}`;
+  if (key === yearNightKey) return;
+  yearNightKey = key;
+  const maxAlt = new Float32Array(288).fill(-90);
+  const days = [171, 354];
+  for (let d = 0; d < 366; d += 7) days.push(d);
+  for (const d of days) {
+    const base = Date.UTC(state.year, 0, 1 + d), off = tzOffsetMin(base + 43200000, state.tz);
+    for (let s = 0; s < 288; s++) {
+      const a = sunPosition(new Date(base + (s * 5 - off) * 60000), lat, lon).alt / rad;
+      if (a > maxAlt[s]) maxAlt[s] = a;
+    }
+  }
+  for (let s = 0; s < 288; s++) { slotW[s] = maxAlt[s] < -6 ? NIGHT_WEIGHT : 1; slotC[s + 1] = slotC[s] + slotW[s]; }
+}
+const minToFrac = m => {
+  const s = Math.min(287, Math.floor(m / 5));
+  return (slotC[s] + slotW[s] * (m - s * 5) / 5) / slotC[288];
+};
+function fracToMin(f) {
+  const t = Math.min(Math.max(f, 0), 1) * slotC[288];
+  let s = 0;
+  while (s < 287 && slotC[s + 1] <= t) s++;
+  return Math.min(1435, Math.round((s * 5 + (t - slotC[s]) / slotW[s] * 5) / 5) * 5);
+}
+const TIME_STEPS = 1000;
+function syncTimeInput() { timeInput.value = Math.round(minToFrac(state.minute) * TIME_STEPS); }
+
+// Graduations horaires : on garde en priorité 0h, 24h, 12h, 6h, 18h… tant qu'elles ne se chevauchent pas
+const TICK_ORDER = [0, 24, 12, 6, 18, 3, 9, 15, 21, 2, 4, 8, 10, 14, 16, 20, 22, 1, 5, 7, 11, 13, 17, 19, 23];
+function drawTicks(w) {
+  const box = $("ticks"), kept = [];
+  for (const hr of TICK_ORDER) {
+    const x = minToFrac(Math.min(hr * 60, 1440)) * w;
+    if (kept.every(k => Math.abs(k.x - x) >= 30)) kept.push({ hr, x });
+  }
+  box.replaceChildren(...kept.sort((a, b) => a.x - b.x).map(({ hr, x }) => {
+    const s = document.createElement("span");
+    s.textContent = `${hr}h`;
+    s.style.left = `${x}px`;
+    s.style.transform = hr === 0 ? "none" : hr === 24 ? "translateX(-100%)" : "translateX(-50%)";
+    return s;
+  }));
+}
+
 const stripCanvas = $("strip"), sctx = stripCanvas.getContext("2d");
 function drawStrip() {
   const dpr = window.devicePixelRatio || 1, w = stripCanvas.clientWidth, h = stripCanvas.clientHeight;
@@ -645,28 +708,30 @@ function drawStrip() {
   const cs = getComputedStyle(document.documentElement), tok = n => cs.getPropertyValue(n).trim();
   const sky = hexRgb(tok("--sky")), night = hexRgb(tok("--night"));
   const series = state.sunSeries, lit = state.pointSeries;
-  const sw = w / 288, barTop = lit ? h * 0.58 : h;
+  const k = w / slotC[288], xs = s => slotC[s] * k, ws = s => slotW[s] * k + 0.6;
+  const barTop = lit ? h * 0.58 : h;
   sctx.clearRect(0, 0, w, h);
   for (let s = 0; s < 288; s++) {
     sctx.fillStyle = mix(sky, night, nightLevel(series[s] / rad));
-    sctx.fillRect(s * sw, 0, sw + 0.6, barTop);
+    sctx.fillRect(xs(s), 0, ws(s), barTop);
   }
   // courbe de hauteur du soleil (0 à 70°)
   sctx.beginPath();
   for (let s = 0; s < 288; s++) {
-    const y = barTop - Math.max(0, series[s] / rad) / 70 * (barTop - 4) - 1;
-    s ? sctx.lineTo(s * sw + sw / 2, y) : sctx.moveTo(sw / 2, y);
+    const x = xs(s) + slotW[s] * k / 2, y = barTop - Math.max(0, series[s] / rad) / 70 * (barTop - 4) - 1;
+    s ? sctx.lineTo(x, y) : sctx.moveTo(x, y);
   }
   sctx.strokeStyle = tok("--sun"); sctx.lineWidth = 1.6; sctx.stroke();
   if (lit) {
     for (let s = 0; s < 288; s++) {
       sctx.fillStyle = series[s] <= 0 ? mix(sky, night, nightLevel(series[s] / rad)) : lit[s] ? tok("--sun") : tok("--shade");
-      sctx.fillRect(s * sw, barTop + 2, sw + 0.6, h - barTop - 2);
+      sctx.fillRect(xs(s), barTop + 2, ws(s), h - barTop - 2);
     }
   }
-  const x = state.minute / 1440 * w;
+  const x = minToFrac(state.minute) * w;
   sctx.fillStyle = tok("--fg");
   sctx.fillRect(x - 1, 0, 2, h);
+  drawTicks(w);
 }
 
 function renderPlace() {
@@ -843,10 +908,15 @@ $("search").addEventListener("input", e => {
 });
 $("search").addEventListener("keydown", e => {
   if (e.key === "Enter") { e.preventDefault(); results.querySelector(".res-main")?.click(); }
-  if (e.key === "Escape") results.hidden = true;
+  if (e.key === "Escape") { results.hidden = true; e.target.blur(); setSearching(false); }
   if (e.key === "ArrowDown") { e.preventDefault(); results.querySelector(".res-main")?.focus(); }
 });
 document.addEventListener("click", e => { if (!e.target.closest(".search")) results.hidden = true; });
+const setSearching = on => $("panel").classList.toggle("searching", on);
+$("search").addEventListener("focus", () => setSearching(true));
+document.querySelector(".place").addEventListener("focusout", () => setTimeout(() => {
+  if (!document.querySelector(".place").contains(document.activeElement)) setSearching(false);
+}, 200));
 
 async function runSearch(q) {
   searchAbort?.abort();
@@ -867,7 +937,7 @@ async function runSearch(q) {
       b.innerHTML = "<span></span><span class=\"sub\"></span>";
       b.firstChild.textContent = p.name;
       b.lastChild.textContent = [p.region, p.elevation != null ? `${Math.round(p.elevation)} m` : ""].filter(Boolean).join(" · ");
-      b.onclick = () => { results.hidden = true; $("search").value = ""; delete p.elevation; setPlace(p); };
+      b.onclick = () => { results.hidden = true; $("search").value = ""; setSearching(false); delete p.elevation; setPlace(p); };
       b.onkeydown = e => {
         if (e.key === "ArrowDown") { e.preventDefault(); li.nextElementSibling?.querySelector(".res-main")?.focus(); }
         if (e.key === "ArrowUp") { e.preventDefault(); (li.previousElementSibling?.querySelector(".res-main") || $("search")).focus(); }
@@ -907,7 +977,7 @@ $("dateInput").addEventListener("change", e => {
 $("prevDay").onclick = () => setDate(state.year, state.day - 1);
 $("nextDay").onclick = () => setDate(state.year, state.day + 1);
 $("today").onclick = () => setToday();
-timeInput.addEventListener("input", () => { state.minute = +timeInput.value; requestRender(); });
+timeInput.addEventListener("input", () => { state.minute = fracToMin(timeInput.value / TIME_STEPS); requestRender(); });
 $("opacity").addEventListener("input", e => { state.opacity = +e.target.value; save(); requestRender(); });
 $("base").addEventListener("change", e => setBase(e.target.value));
 function setMode(m) {
@@ -933,7 +1003,7 @@ function tick(ts) {
   if (!playing) return;
   if (ts - lastTick > (playing === "day" ? 45 : 90)) {
     lastTick = ts;
-    if (playing === "day") { state.minute = (state.minute + 5) % 1440; timeInput.value = state.minute; render(); }
+    if (playing === "day") { state.minute = (state.minute + 5) % 1440; syncTimeInput(); render(); }
     else setDate(state.year, (state.day + 1) % (+dayInput.max + 1));
   }
   requestAnimationFrame(tick);
@@ -955,7 +1025,6 @@ const nowParts = setToday();
 state.minute = Math.round((nowParts.hour * 60 + nowParts.minute) / 5) * 5 % 1440;
 // si on ouvre la page la nuit, on se place à 10h
 if (sunPosition(dateAt(state.minute), state.place.lat, state.place.lon).alt <= 0) state.minute = 600;
-timeInput.value = state.minute;
 setPlace(state.place, false);
 loadGrid();
 </script>
