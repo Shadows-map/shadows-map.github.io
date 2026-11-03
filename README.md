@@ -4,12 +4,12 @@ Carte interactive des zones à l'ombre et au soleil créées par le relief, part
 
 ## Fonctions
 
-- Choix de la date (calendrier, curseur sur l'année, −1 j / +1 j, Aujourd'hui) et de l'heure (curseur sur la journée). Lecture animée de la journée ou de l'année.
-- Ombres portées par le relief et versants dos au soleil, calculées en direct sur la carte graphique (WebGL). Deux rendus : ombre nette ou nuancé.
+- Choix de la date (calendrier, curseur sur l'année, −1 j / +1 j, Aujourd'hui) et de l'heure (curseur sur la journée). Lecture animée de la journée ou de l'année. Sur la barre des heures, les heures où il fait nuit toute l'année au lieu suivi sont resserrées.
+- Ombres portées par le relief et versants dos au soleil, calculées en direct sur la carte graphique (WebGL). L'icône ⚙ sur la carte règle le rendu (ombre nette ou nuancée) et l'opacité.
 - Effet de nuit progressif suivant la hauteur du soleil : crépuscules civil (0 à −6°), nautique (−6 à −12°) et astronomique (−12 à −18°). La durée de la transition dépend donc de la latitude et de la saison.
-- Lieu suivi : recherche par nom, position GPS ou clic sur la carte. L'app affiche le soleil ou l'ombre à l'heure choisie, l'altitude, la durée de soleil direct sur la journée (relief compris) et les heures d'aube, de lever, de coucher et de crépuscule. Les heures sont données dans le fuseau du lieu.
+- Lieu suivi : recherche par nom, position GPS ou clic sur la carte. L'app affiche le soleil ou l'ombre à l'heure choisie, l'altitude et la durée de soleil direct sur la journée, relief compris. Les heures sont données dans le fuseau du lieu.
 - Favoris : ★ pour enregistrer un lieu. Un appui va au lieu, un appui long le renomme, un glisser change l'ordre et ✕ le supprime. Ils sont enregistrés dans le navigateur.
-- Fonds de carte : OpenTopoMap, OpenStreetMap, satellite Esri, et cartes officielles de France (IGN), Suisse (swisstopo), Autriche (basemap.at), Allemagne et Europe (BKG TopPlusOpen), Espagne (IGN), Belgique (NGI), Norvège (Kartverket), États-Unis (USGS) et Japon (GSI).
+- Fonds de carte, au choix par l'icône des calques sur la carte : OpenTopoMap, OpenStreetMap, satellite Esri, et cartes officielles de France (IGN), Suisse (swisstopo, dont la carte au 1:10'000), Autriche (basemap.at), Allemagne et Europe (BKG TopPlusOpen), Espagne (IGN), Belgique (NGI), Norvège (Kartverket), États-Unis (USGS) et Japon (GSI).
 
 ## Utilisation
 
