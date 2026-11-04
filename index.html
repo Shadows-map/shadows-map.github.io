@@ -375,6 +375,7 @@ baseLayers[SWISS_LABEL].baseId = "swiss";
 // ---------- Carte ----------
 const map = L.map("map", { zoomControl: false, maxZoom: MAX_ZOOM }).setView([state.place.lat, state.place.lon], 12);
 map.attributionControl.addAttribution("Relief : Terrain Tiles (AWS / Mapzen)");
+map.attributionControl.addAttribution("app made by Greg and his friend Claude");
 const layersControl = L.control.layers(baseLayers, null, { position: "topright" }).addTo(map);
 {
   // Bouton ✕ en haut à droite de la liste des fonds
@@ -903,10 +904,13 @@ const favLayer = L.layerGroup().addTo(map);
 function renderFavMarkers() {
   favLayer.clearLayers();
   state.favs.forEach(f => {
-    L.circleMarker([f.lat, f.lon], { radius: 5, color: "#fff", weight: 2, fillColor: "#1d2130", fillOpacity: 1 })
-      .bindTooltip(f.name, { permanent: true, direction: "auto", offset: [0, 0], className: "fav-label" })
-      .on("click", e => { L.DomEvent.stop(e); setPlace({ ...f }, false); })
+    const go = e => { L.DomEvent.stop(e); setPlace({ ...f }, true); };
+    L.circleMarker([f.lat, f.lon], { radius: 7, color: "#fff", weight: 2, fillColor: "#1d2130", fillOpacity: 1, interactive: false })
+      .bindTooltip(f.name, { permanent: true, direction: "auto", offset: [2, 0], className: "fav-label", interactive: true })
+      .on("tooltipopen", e => e.tooltip.getElement().addEventListener("click", go))
       .addTo(favLayer);
+    // Zone d'appui invisible et large autour du point, pour viser sans précision
+    L.circleMarker([f.lat, f.lon], { radius: 22, stroke: false, fillColor: "#000", fillOpacity: 0 }).on("click", go).addTo(favLayer);
   });
 }
 function renameFav(chip, fav) {
@@ -1138,8 +1142,10 @@ if (sunPosition(dateAt(state.minute), state.place.lat, state.place.lon).alt <= 0
 setPlace(state.place, false);
 // Vue de départ : tous les favoris, avec de la marge, au-dessus du panneau du bas
 if (state.favs.length > 1) {
-  const b = L.latLngBounds(state.favs.map(f => [f.lat, f.lon])).pad(0.25);
+  const b = L.latLngBounds(state.favs.map(f => [f.lat, f.lon])).pad(0.08);
+  map.options.zoomSnap = 0.25;  // cadrage au quart de niveau près, sinon le zoom entier est souvent trop large
   map.fitBounds(b, { paddingTopLeft: [20, 50], paddingBottomRight: [20, $("panel").offsetHeight + 20], animate: false });
+  map.options.zoomSnap = 1;
 }
 save();
 loadGrid();
