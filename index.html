@@ -41,6 +41,10 @@ body { position: fixed; inset: 0; background: var(--bg); color: var(--fg); font-
   background: radial-gradient(circle at 40% 38%, #fff6c8 0, var(--core) 45%, var(--rim) 100%);
   box-shadow: 0 0 10px 3px rgba(255,170,40,.55), 0 0 0 2px rgba(255,255,255,.8);
   clip-path: inset(-20px -20px var(--cut, 0px) -20px) }
+#sun .ray { position: absolute; left: -12px; top: -64px; width: 24px; height: 40px; overflow: visible;
+  transform-origin: 12px 64px; transform: rotate(var(--ray, 0deg));
+  fill: none; stroke: var(--rim); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round;
+  filter: drop-shadow(0 0 1.5px rgba(0,0,0,.6)) }
 #sun.horizon::after { content: ""; position: absolute; left: -26px; width: 52px; height: 2px; border-radius: 1px;
   top: calc(16px - var(--cut)); background: rgba(255,255,255,.9); box-shadow: 0 0 3px rgba(0,0,0,.4) }
 
@@ -451,7 +455,8 @@ const glowEl = document.createElement("div");
 glowEl.id = "glow";
 const sunEl = document.createElement("div");
 sunEl.id = "sun";
-sunEl.innerHTML = '<div class="disc"></div>';
+// Flèche dessinée vers le haut, tournée ensuite dans le sens des rayons (azimut + 180°)
+sunEl.innerHTML = '<svg class="ray" viewBox="-12 -64 24 40"><path d="M0 -26V-56M-8 -48L0 -60L8 -48"/></svg><div class="disc"></div>';
 map.getContainer().append(nightEl, glowEl, sunEl);
 const mixRgb = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",");
 // Soleil posé sur le bord de l'écran, dans la direction de son azimut (nord en haut) :
@@ -474,13 +479,14 @@ function updateGlow(sun) {
     return [Math.round(w / 2 + dx * t), Math.round(h / 2 + dy * t)];
   };
   const [x, y] = edge(0);
-  const r = Math.round(Math.min(w, h) * 0.35);
-  glowEl.style.background = `radial-gradient(circle at ${x}px ${y}px, rgba(255,140,40,.55) 0, rgba(255,110,25,.25) ${Math.round(r * 0.45)}px, rgba(255,90,20,0) ${r}px)`;
+  const r = Math.round(Math.min(w, h) * 0.7);
+  glowEl.style.background = `radial-gradient(circle at ${x}px ${y}px, rgba(255,150,40,.9) 0, rgba(255,120,30,.6) ${Math.round(r * 0.25)}px, rgba(255,100,20,.3) ${Math.round(r * 0.55)}px, rgba(255,90,20,0) ${r}px)`;
   if (shown <= 0) return;
   const [sx, sy] = edge(34);
-  const warm = Math.min(1, Math.max(0, (a - 2) / 13));   // 0 = orange (≤ 2°), 1 = jaune (≥ 15°)
-  const core = mixRgb([255, 128, 30], [255, 214, 60], warm), rim = mixRgb([235, 80, 20], [250, 170, 20], warm);
+  const warm = Math.min(1, Math.max(0, (a - 2) / 8));   // 0 = orange (≤ 2°), 1 = jaune (≥ 10°)
+  const core = mixRgb([255, 128, 30], [255, 226, 70], warm), rim = mixRgb([235, 80, 20], [242, 190, 25], warm);
   sunEl.style.transform = `translate(${sx}px, ${sy}px)`;
+  sunEl.style.setProperty("--ray", `${Math.round(sun.az / rad + 180)}deg`);
   sunEl.style.setProperty("--core", `rgb(${core})`);
   sunEl.style.setProperty("--rim", `rgb(${rim})`);
   sunEl.style.setProperty("--cut", `${Math.round((1 - shown) * 34)}px`);
