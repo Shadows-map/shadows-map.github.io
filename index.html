@@ -35,15 +35,13 @@ body { position: fixed; inset: 0; background: var(--bg); color: var(--fg); font-
 #night { position: absolute; inset: 0; z-index: 450; pointer-events: none; background: rgb(8,12,48); opacity: 0 }
 /* Lueur orangée du côté du soleil, au lever et au coucher */
 #glow { position: absolute; inset: 0; z-index: 451; pointer-events: none; opacity: 0 }
-/* Disque du soleil ; --cut = part cachée sous l'horizon, depuis le bas */
-#sun { position: absolute; left: 0; top: 0; z-index: 452; pointer-events: none; width: 0; height: 0 }
-#sun svg { position: absolute; left: -20px; top: -20px; width: 40px; height: 40px; overflow: visible;
-  filter: drop-shadow(0 0 4px rgba(255,170,40,.7)); clip-path: inset(-10px -10px var(--cut, -10px) -10px) }
+/* Icône du soleil à droite de l'heure */
+#sun { flex: none; width: 24px; height: 24px; margin-left: -2px }
+#sun svg { display: block; width: 100%; height: 100%; overflow: visible }
 #sun .core { fill: var(--core); stroke: rgba(255,255,255,.85); stroke-width: 1.5 }
-#sun .beams { stroke: var(--rim); stroke-width: 2.5; stroke-linecap: round }
-#sun .arrow { fill: none; stroke: rgba(120,45,0,.85); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round }
-#sun.horizon::after { content: ""; position: absolute; left: -22px; width: 44px; height: 2px; border-radius: 1px;
-  top: var(--line); background: rgba(255,255,255,.9); box-shadow: 0 0 3px rgba(0,0,0,.4) }
+#sun .beams { stroke: var(--rim); stroke-width: 2.8; stroke-linecap: round }
+#sun .arrow { fill: none; stroke: rgba(120,45,0,.85); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round }
+#sun .hz { stroke: var(--muted); stroke-width: 2; stroke-linecap: round }
 
 .panel {
   position: fixed; z-index: 1000; left: max(12px, env(safe-area-inset-left, 0px));
@@ -200,6 +198,7 @@ input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
   <div class="row">
     <div class="row-head">
       <output id="timeLabel">–</output>
+      <span id="sun" aria-hidden="true"></span>
       <span id="status"></span>
       <button class="play" id="playDay" aria-pressed="false" title="Faire défiler la journée"><svg class="i-play" viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg><svg class="i-pause" viewBox="0 0 10 10"><path d="M2 1h2.2v8H2zM5.8 1H8v8H5.8z"/></svg></button>
     </div>
@@ -450,18 +449,19 @@ const nightEl = document.createElement("div");
 nightEl.id = "night";
 const glowEl = document.createElement("div");
 glowEl.id = "glow";
-const sunEl = document.createElement("div");
-sunEl.id = "sun";
-// Disque de rayon 10 entouré de 8 rayons ; flèche dessinée vers le haut, tournée ensuite dans le sens
-// des rayons du soleil (azimut + 180°)
-sunEl.innerHTML = `<svg viewBox="-20 -20 40 40"><g class="beams">${[0, 45, 90, 135, 180, 225, 270, 315].map(d =>
+map.getContainer().append(nightEl, glowEl);
+// Icône du soleil à droite de l'heure : disque de rayon 10 et 8 rayons, coupés sous la ligne d'horizon
+// (rectangle de découpe) ; flèche dessinée vers le haut, tournée dans le sens des rayons (azimut + 180°)
+const sunEl = $("sun");
+sunEl.innerHTML = `<svg viewBox="-20 -20 40 40"><clipPath id="sunClip"><rect x="-25" y="-25" width="50" height="50"/></clipPath>
+  <g clip-path="url(#sunClip)"><g class="beams">${[0, 45, 90, 135, 180, 225, 270, 315].map(d =>
   `<line x1="0" y1="-13.5" x2="0" y2="-18" transform="rotate(${d})"/>`).join("")}</g>
-  <circle class="core" r="10"/><g class="arrow"><path d="M0 6V-6M-3.6 -2.2L0 -6.6L3.6 -2.2"/></g></svg>`;
-const sunArrow = sunEl.querySelector(".arrow");
-map.getContainer().append(nightEl, glowEl, sunEl);
+  <circle class="core" r="10"/><g class="arrow"><path d="M0 6V-6M-3.6 -2.2L0 -6.6L3.6 -2.2"/></g></g>
+  <line class="hz" x1="-19" x2="19" y1="0" y2="0"/></svg>`;
+const sunArrow = sunEl.querySelector(".arrow"), sunClip = sunEl.querySelector("#sunClip rect"), sunHz = sunEl.querySelector(".hz");
 const mixRgb = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",");
-// Soleil posé sur le bord de l'écran, dans la direction de son azimut (nord en haut) :
-// jaune en journée, orange près de l'horizon, coupé par l'horizon au lever et au coucher.
+// Soleil : jaune en journée, orange près de l'horizon, coupé par l'horizon au lever et au coucher.
+// Halo orange sur la carte, posé sur le bord de l'écran dans la direction de l'azimut (nord en haut).
 // Durées réelles (hauteur apparente, réfraction comprise) : le disque, de 0,53° de diamètre, émerge entre
 // −0,27° et +0,27° de hauteur du centre ; le halo couvre l'heure dorée, de −4° à +6°, au plus fort à 0°.
 function updateGlow(sun) {
@@ -469,33 +469,27 @@ function updateGlow(sun) {
   const k = a <= -4 || a >= 6 ? 0 : a < 0 ? (a + 4) / 4 : 1 - a / 6;
   const shown = Math.min(1, Math.max(0, (a + 0.267) / 0.533));   // part visible du disque
   glowEl.style.opacity = k.toFixed(3);
-  sunEl.style.display = shown > 0 ? "" : "none";
-  if (k <= 0 && shown <= 0) return;
-  // Zone visible de la carte : sans le panneau du bas quand il occupe toute la largeur
-  const w = glowEl.clientWidth, panel = $("panel");
-  const h = glowEl.clientHeight - (panel.offsetWidth >= w - 1 ? panel.offsetHeight : 0);
-  const dx = Math.sin(sun.az), dy = -Math.cos(sun.az);
-  const edge = (inset) => {
-    const hw = w / 2 - inset, hh = h / 2 - inset;
-    const t = Math.min(dx ? hw / Math.abs(dx) : Infinity, dy ? hh / Math.abs(dy) : Infinity);
-    return [Math.round(w / 2 + dx * t), Math.round(h / 2 + dy * t)];
-  };
-  const [x, y] = edge(0);
-  const r = Math.round(Math.min(w, h) * 0.7);
-  glowEl.style.background = `radial-gradient(circle at ${x}px ${y}px, rgba(255,150,40,.9) 0, rgba(255,120,30,.6) ${Math.round(r * 0.25)}px, rgba(255,100,20,.3) ${Math.round(r * 0.55)}px, rgba(255,90,20,0) ${r}px)`;
+  sunEl.style.visibility = shown > 0 ? "" : "hidden";
+  if (k > 0) {
+    // Zone visible de la carte : sans le panneau du bas quand il occupe toute la largeur
+    const w = glowEl.clientWidth, panel = $("panel");
+    const h = glowEl.clientHeight - (panel.offsetWidth >= w - 1 ? panel.offsetHeight : 0);
+    const dx = Math.sin(sun.az), dy = -Math.cos(sun.az);
+    const t = Math.min(dx ? w / 2 / Math.abs(dx) : Infinity, dy ? h / 2 / Math.abs(dy) : Infinity);
+    const x = Math.round(w / 2 + dx * t), y = Math.round(h / 2 + dy * t);
+    const r = Math.round(Math.max(w, h) * 0.85);
+    glowEl.style.background = `radial-gradient(circle at ${x}px ${y}px, rgba(255,150,40,.9) 0, rgba(255,125,30,.65) ${Math.round(r * 0.2)}px, rgba(255,105,20,.35) ${Math.round(r * 0.5)}px, rgba(255,90,20,0) ${r}px)`;
+  }
   if (shown <= 0) return;
-  const [sx, sy] = edge(30);
   const warm = Math.min(1, Math.max(0, (a - 2) / 8));   // 0 = orange (≤ 2°), 1 = jaune (≥ 10°)
-  const core = mixRgb([255, 128, 30], [255, 220, 60], warm), rim = mixRgb([240, 90, 20], [250, 185, 20], warm);
-  sunEl.style.transform = `translate(${sx}px, ${sy}px)`;
+  sunEl.style.setProperty("--core", `rgb(${mixRgb([255, 128, 30], [255, 220, 60], warm)})`);
+  sunEl.style.setProperty("--rim", `rgb(${mixRgb([240, 90, 20], [250, 185, 20], warm)})`);
   sunArrow.setAttribute("transform", `rotate(${Math.round(sun.az / rad + 180)})`);
-  sunEl.style.setProperty("--core", `rgb(${core})`);
-  sunEl.style.setProperty("--rim", `rgb(${rim})`);
-  // Horizon : ligne à la hauteur du disque correspondant à la part visible (le disque va de −10 à +10 px)
-  const line = 10 - 20 * (1 - shown);
-  sunEl.style.setProperty("--cut", shown < 1 ? `${Math.round(20 - line)}px` : "-10px");
-  sunEl.style.setProperty("--line", `${Math.round(line - 1)}px`);
-  sunEl.classList.toggle("horizon", shown < 1);
+  // Horizon : ligne à la hauteur du disque correspondant à la part visible (le disque va de −10 à +10)
+  const line = shown < 1 ? 10 - 20 * (1 - shown) : 25;
+  sunClip.setAttribute("height", line + 25);
+  sunHz.setAttribute("y1", line); sunHz.setAttribute("y2", line);
+  sunHz.style.display = shown < 1 ? "" : "none";
 }
 
 // Calque Leaflet qui positionne un <canvas> comme une image géoréférencée
