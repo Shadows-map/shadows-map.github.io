@@ -143,6 +143,8 @@ button { font: inherit; color: var(--fg) }
 .date-pick input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; padding: 0; cursor: pointer }
 #weekday { font-size: 11px; color: var(--muted) }
 input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
+.day-strip { position: relative; height: 26px; touch-action: none; cursor: ew-resize; user-select: none }
+.day-strip canvas { position: absolute; inset: 0; width: 100%; height: 100% }
 :focus-visible { outline: 2px solid var(--sun); outline-offset: 2px }
 
 .strip { position: relative; height: 38px }
@@ -192,7 +194,7 @@ input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
       <button class="step" id="today" title="Revenir à aujourd'hui">Auj.</button>
       <button class="play" id="playYear" aria-pressed="false" title="Faire défiler l'année"><svg class="i-play" viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg><svg class="i-pause" viewBox="0 0 10 10"><path d="M2 1h2.2v8H2zM5.8 1H8v8H5.8z"/></svg></button>
     </div>
-    <input type="range" id="day" min="0" max="364" step="1" aria-label="Jour de l'année">
+    <div class="day-strip" id="dayStrip" tabindex="0" role="slider" aria-label="Jour de l'année"><canvas id="dayCanvas"></canvas></div>
   </div>
 
   <div class="row">
@@ -334,8 +336,8 @@ function setDate(year, day) {
   const d = new Date(Date.UTC(year, 0, 1 + day));
   state.year = d.getUTCFullYear();
   state.day = Math.round((d - Date.UTC(state.year, 0, 1)) / 86400000);
-  dayInput.max = isLeap(state.year) ? 365 : 364;
-  dayInput.value = state.day;
+  $("dayStrip").setAttribute("aria-valuetext", d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }));
+  drawDayStrip();
   const iso = d.toISOString().slice(0, 10);
   $("dateInput").value = iso;
   $("dateText").textContent = iso.split("-").reverse().join(".");
@@ -1093,8 +1095,69 @@ async function runSearch(q) {
 }
 
 // ---------- Interactions ----------
-const dayInput = $("day"), timeInput = $("time");
-dayInput.addEventListener("input", () => setDate(state.year, +dayInput.value));
+const timeInput = $("time");
+// Barre des jours : le jour choisi reste au centre, la barre montre ±6 mois autour et défile sous le doigt ;
+// un appui sans glisser va au jour touché
+const DAY_SPAN = 365;
+const MONTHS = ["janv", "févr", "mars", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc"];
+function drawDayStrip() {
+  const c = $("dayCanvas"), dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (!w) return;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  const g = c.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const cs = getComputedStyle(document.documentElement), tok = n => cs.getPropertyValue(n).trim();
+  const k = w / DAY_SPAN, cx = w / 2, center = Date.UTC(state.year, 0, 1 + state.day);
+  const xOf = t => cx + (t - center) / 86400000 * k;
+  const trackY = h - 8;
+  g.fillStyle = tok("--line"); g.fillRect(0, trackY - 2, w, 4);
+  // Débuts de mois : trait ; nom du mois centré dans le mois (l'année à la place de « janv »)
+  g.font = `9.5px ${tok("--font-num")}`; g.textBaseline = "top"; g.textAlign = "center";
+  const d0 = new Date(center - 200 * 86400000);
+  for (let m = 0; m < 15; m++) {
+    const t = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth() + m, 1), x = xOf(t);
+    const xm = (x + xOf(Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth() + m + 1, 1))) / 2;
+    if (xm < -30 || x > w + 30) continue;
+    const mo = new Date(t).getUTCMonth(), jan = mo === 0;
+    g.fillStyle = tok(jan ? "--fg" : "--muted");
+    g.fillRect(Math.round(x), trackY - (jan ? 7 : 5), 1, jan ? 11 : 9);
+    g.fillText(jan ? String(new Date(t).getUTCFullYear()) : MONTHS[mo], Math.round(xm), 1);
+  }
+  // Repère fixe du jour choisi, au centre (sous les noms de mois)
+  g.fillStyle = tok("--sun");
+  g.fillRect(Math.round(cx) - 1, 12, 2, h - 12);
+  g.beginPath(); g.arc(cx, trackY, 6, 0, 2 * Math.PI); g.fill();
+  g.strokeStyle = "#fff"; g.lineWidth = 2; g.stroke();
+}
+{
+  const el = $("dayStrip");
+  let x0 = null, y0, d0, moved;
+  el.addEventListener("pointerdown", e => {
+    x0 = e.clientX; y0 = state.year; d0 = state.day; moved = false;
+    try { el.setPointerCapture(e.pointerId); } catch { /* pointeur déjà parti */ }
+  });
+  el.addEventListener("pointermove", e => {
+    if (x0 === null) return;
+    const dd = Math.round((e.clientX - x0) / (el.clientWidth / DAY_SPAN));
+    if (!moved && Math.abs(e.clientX - x0) < 4) return;
+    moved = true;
+    if (Date.UTC(y0, 0, 1 + d0 - dd) !== Date.UTC(state.year, 0, 1 + state.day)) setDate(y0, d0 - dd);
+  });
+  el.addEventListener("pointerup", e => {
+    if (x0 === null) return;
+    if (!moved) {
+      const r = el.getBoundingClientRect();
+      setDate(state.year, state.day + Math.round((e.clientX - r.left - r.width / 2) / (r.width / DAY_SPAN)));
+    }
+    x0 = null;
+  });
+  el.addEventListener("pointercancel", () => { x0 = null; });
+  el.addEventListener("keydown", e => {
+    const step = { ArrowLeft: -1, ArrowRight: 1, PageDown: -30, PageUp: 30 }[e.key];
+    if (step) { e.preventDefault(); setDate(state.year, state.day + step); }
+  });
+}
 $("dateInput").addEventListener("click", e => { try { e.target.showPicker(); } catch { /* le navigateur ouvre lui-même */ } });
 $("dateInput").addEventListener("change", e => {
   const v = e.target.value; if (!v) return;
@@ -1116,7 +1179,7 @@ $("modeSoft").onclick = () => setMode(1);
 function setCollapsed(c) {
   $("panel").classList.toggle("collapsed", c);
   $("grab").setAttribute("aria-expanded", !c);
-  drawStrip();
+  drawStrip(); drawDayStrip();
 }
 // Glisser la barre du haut : vers le bas = réduire, vers le haut = agrandir
 {
@@ -1169,7 +1232,7 @@ function tick(ts) {
       state.minute = state.minute < a || state.minute >= b ? a : state.minute + 5;
       syncTimeInput(); render();
     }
-    else setDate(state.year, (state.day + 1) % (+dayInput.max + 1));
+    else setDate(state.year, (state.day + 1) % (isLeap(state.year) ? 366 : 365));
   }
   requestAnimationFrame(tick);
 }
@@ -1195,7 +1258,7 @@ if (window.visualViewport) {
 
 let moveTimer;
 map.on("moveend", () => { requestRender(); clearTimeout(moveTimer); moveTimer = setTimeout(loadGrid, 150); });
-window.addEventListener("resize", drawStrip);
+window.addEventListener("resize", () => { drawStrip(); drawDayStrip(); });
 matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawStrip);
 
 // ---------- Démarrage ----------
