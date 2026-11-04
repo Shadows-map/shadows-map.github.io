@@ -29,7 +29,8 @@
 /* La page ne défile jamais : sur téléphone, glisser sur la carte ne doit pas emporter le panneau */
 html, body { height: 100%; margin: 0; overflow: hidden; overscroll-behavior: none }
 body { position: fixed; inset: 0; background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 14px }
-#map { position: fixed; inset: 0; background: var(--bg) }
+/* absolute et non fixed : un élément fixed isole ses enfants, et la liste des fonds resterait sous le panneau */
+#map { position: absolute; inset: 0; background: var(--bg) }
 .leaflet-image-layer.relief { image-rendering: auto }
 #night { position: absolute; inset: 0; z-index: 450; pointer-events: none; background: rgb(8,12,48); opacity: 0 }
 /* Lueur orangée du côté du soleil, au lever et au coucher */
@@ -57,16 +58,16 @@ body { position: fixed; inset: 0; background: var(--bg); color: var(--fg); font-
 .leaflet-bar a.map-btn.on { color: #1a73e8 }
 .leaflet-control-layers-toggle, .leaflet-touch .leaflet-control-layers-toggle { width: 30px; height: 30px; background-size: 18px }
 .leaflet-top { z-index: 1001 }  /* la liste des fonds passe au-dessus du panneau */
-.leaflet-control-layers-list { position: relative; padding-top: 22px }
-.layers-close { position: absolute; top: -4px; right: -4px; width: 28px; height: 28px; border: 0; background: transparent; font-size: 15px; color: #555; cursor: pointer }
+.leaflet-control-layers-list { padding-top: 22px }
+.layers-close { display: none; position: absolute; top: 2px; right: 2px; z-index: 1; width: 28px; height: 28px; border: 0; background: transparent; font-size: 15px; color: #555; cursor: pointer }
+.leaflet-control-layers-expanded .layers-close { display: block }
 .panel.collapsed .more { display: none }
 .panel.collapsed { gap: 2px }
 /* Barre de saisie du panneau : glisser vers le haut / le bas pour l'agrandir / le réduire */
-.grab { position: relative; height: 16px; margin: -6px 0 -4px; touch-action: none; cursor: grab }
-.grab::before { content: ""; position: absolute; left: 50%; top: 5px; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--line) }
-#collapse { position: absolute; right: -4px; top: -2px; height: 22px; min-width: 30px; border: 0 }
-#collapse svg { transition: transform .2s }
-.panel.collapsed #collapse svg { transform: rotate(180deg) }
+.grab { position: relative; height: 26px; margin: -10px -12px -8px; touch-action: none; cursor: grab; user-select: none }
+.grab::before { content: ""; position: absolute; left: 50%; top: 9px; width: 72px; height: 7px; margin-left: -36px; background: var(--line);
+  clip-path: polygon(0 0, 100% 0, 50% 100%) }
+.panel.collapsed .grab::before { clip-path: polygon(0 100%, 100% 100%, 50% 0) }
 
 button { font: inherit; color: var(--fg) }
 .icon-btn, .play, .step {
@@ -78,6 +79,8 @@ button { font: inherit; color: var(--fg) }
 .icon-btn svg, .play svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 2 }
 .play svg { fill: currentColor; stroke: none; width: 11px; height: 11px }
 .play { border-radius: 50% }
+.play .i-pause, .play[aria-pressed="true"] .i-play { display: none }
+.play[aria-pressed="true"] .i-pause { display: inline }
 .play[aria-pressed="true"], #btnStar.on { background: var(--sun); border-color: var(--sun); color: #1d2130 }
 #btnStar { font-size: 16px; line-height: 1 }
 
@@ -153,9 +156,8 @@ input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
 <body>
 <div id="map"></div>
 
-<aside class="panel" id="panel" aria-label="Shadows Map">
-  <div class="grab" id="grab" title="Glisser vers le haut ou le bas pour agrandir ou réduire">
-    <button class="icon-btn" id="collapse" title="Réduire / agrandir le panneau" aria-expanded="true"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>
+<aside class="panel collapsed" id="panel" aria-label="Shadows Map">
+  <div class="grab" id="grab" role="button" aria-expanded="false" title="Appuyer ou glisser pour agrandir ou réduire le panneau">
   </div>
   <div class="place more">
     <div class="search">
@@ -175,7 +177,7 @@ input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
         <input type="date" id="dateInput" aria-label="Date"></label>
       <button class="step" id="nextDay" title="Jour suivant">+1 j</button>
       <button class="step" id="today" title="Revenir à aujourd'hui">Auj.</button>
-      <button class="play" id="playYear" aria-pressed="false" title="Faire défiler l'année"><svg viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg></button>
+      <button class="play" id="playYear" aria-pressed="false" title="Faire défiler l'année"><svg class="i-play" viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg><svg class="i-pause" viewBox="0 0 10 10"><path d="M2 1h2.2v8H2zM5.8 1H8v8H5.8z"/></svg></button>
     </div>
     <input type="range" id="day" min="0" max="364" step="1" aria-label="Jour de l'année">
   </div>
@@ -184,7 +186,7 @@ input[type=range] { width: 100%; margin: 0; accent-color: var(--sun) }
     <div class="row-head">
       <output id="timeLabel">–</output>
       <span id="status"></span>
-      <button class="play" id="playDay" aria-pressed="false" title="Faire défiler la journée"><svg viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg></button>
+      <button class="play" id="playDay" aria-pressed="false" title="Faire défiler la journée"><svg class="i-play" viewBox="0 0 10 10"><path d="M2 1l7 4-7 4z"/></svg><svg class="i-pause" viewBox="0 0 10 10"><path d="M2 1h2.2v8H2zM5.8 1H8v8H5.8z"/></svg></button>
     </div>
     <div class="strip">
       <canvas id="strip"></canvas>
@@ -367,7 +369,7 @@ const layersControl = L.control.layers(baseLayers, null, { position: "topright" 
   const close = L.DomUtil.create("button", "layers-close");
   close.type = "button"; close.textContent = "✕"; close.title = "Fermer"; close.setAttribute("aria-label", "Fermer la liste des fonds");
   L.DomEvent.on(close, "click", e => { L.DomEvent.stop(e); layersControl.collapse(); });
-  layersControl.getContainer().querySelector(".leaflet-control-layers-list").prepend(close);
+  layersControl.getContainer().append(close);  // hors de la liste, pour rester visible quand elle défile
 }
 let baseLayer = null;
 function setBase(id) {
@@ -1034,31 +1036,45 @@ $("modeHard").onclick = () => setMode(0);
 $("modeSoft").onclick = () => setMode(1);
 function setCollapsed(c) {
   $("panel").classList.toggle("collapsed", c);
-  $("collapse").setAttribute("aria-expanded", !c);
+  $("grab").setAttribute("aria-expanded", !c);
   drawStrip();
 }
-$("collapse").onclick = e => { e.stopPropagation(); setCollapsed(!$("panel").classList.contains("collapsed")); };
 // Glisser la barre du haut : vers le bas = réduire, vers le haut = agrandir
 {
-  let y0 = null;
+  let y0 = null, moved = false;
   const grab = $("grab");
   grab.addEventListener("pointerdown", e => {
-    if (e.target.closest("#collapse")) return;
-    y0 = e.clientY;
+    e.preventDefault();
+    y0 = e.clientY; moved = false;
     try { grab.setPointerCapture(e.pointerId); } catch { /* pointeur déjà parti */ }
   });
-  grab.addEventListener("pointerup", e => {
+  // Le panneau suit le geste dès 20 px, sans attendre que le doigt se lève
+  grab.addEventListener("pointermove", e => {
     if (y0 === null) return;
     const dy = e.clientY - y0;
+    if (Math.abs(dy) < 20) return;
+    moved = true;
+    setCollapsed(dy > 0);
+    y0 = e.clientY;
+  });
+  grab.addEventListener("pointerup", () => {
+    if (y0 === null) return;
     y0 = null;
-    if (dy > 20) setCollapsed(true);
-    else if (dy < -20) setCollapsed(false);
-    else setCollapsed(!$("panel").classList.contains("collapsed"));  // simple appui
+    if (!moved) setCollapsed(!$("panel").classList.contains("collapsed"));  // simple appui
   });
   grab.addEventListener("pointercancel", () => { y0 = null; });
 }
 
 let playing = null, lastTick = 0;
+// Boucle de la journée : de 1h avant le lever à 1h après le coucher (horizon plat) du jour choisi ;
+// journée entière en cas de jour ou de nuit polaire
+function playRange() {
+  const alts = state.sunSeries;
+  let first = -1, last = -1;
+  if (alts) alts.forEach((v, i) => { if (v > 0) { if (first < 0) first = i; last = i; } });
+  if (first < 0 || (first === 0 && last === alts.length - 1)) return [0, 1435];
+  return [Math.max(0, first * 5 - 60), Math.min(1435, last * 5 + 65)];
+}
 function setPlay(kind) {
   playing = playing === kind ? null : kind;
   $("playDay").setAttribute("aria-pressed", playing === "day");
@@ -1069,7 +1085,11 @@ function tick(ts) {
   if (!playing) return;
   if (ts - lastTick > (playing === "day" ? 45 : 90)) {
     lastTick = ts;
-    if (playing === "day") { state.minute = (state.minute + 5) % 1440; syncTimeInput(); render(); }
+    if (playing === "day") {
+      const [a, b] = playRange();
+      state.minute = state.minute < a || state.minute >= b ? a : state.minute + 5;
+      syncTimeInput(); render();
+    }
     else setDate(state.year, (state.day + 1) % (+dayInput.max + 1));
   }
   requestAnimationFrame(tick);
