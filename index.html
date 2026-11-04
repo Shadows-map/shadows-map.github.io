@@ -59,6 +59,9 @@ body { position: fixed; inset: 0; background: var(--bg); color: var(--fg); font-
 .leaflet-control-layers-toggle, .leaflet-touch .leaflet-control-layers-toggle { width: 30px; height: 30px; background-size: 18px }
 .leaflet-top { z-index: 1001 }  /* la liste des fonds passe au-dessus du panneau */
 .leaflet-control-layers-list { padding-top: 22px }
+.fav-label { padding: 1px 5px; border: 0; border-radius: 4px; background: rgba(255,255,255,.85); box-shadow: 0 1px 3px rgba(0,0,0,.3);
+  font: 600 11px var(--font-ui, sans-serif); color: #1d2130 }
+.fav-label::before { display: none }
 .layers-close { display: none; position: absolute; top: 2px; right: 2px; z-index: 1; width: 28px; height: 28px; border: 0; background: transparent; font-size: 15px; color: #555; cursor: pointer }
 .leaflet-control-layers-expanded .layers-close { display: block }
 .panel.collapsed .more { display: none }
@@ -279,14 +282,23 @@ const fmtMin = m => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m %
 const fmtDur = m => `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}`;
 
 function save() {
-  try { localStorage.setItem(STORE_KEY, JSON.stringify({ favs: state.favs, place: state.place, base: state.base, mode: state.mode, opacity: state.opacity })); }
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ favs: state.favs, place: state.place, base: state.base, mode: state.mode, opacity: state.opacity, seeded: true })); }
   catch { /* stockage indisponible */ }
 }
+const DEFAULT_FAVS = [
+  { name: "Lausanne", region: "Canton de Vaud, Suisse", lat: 46.5197, lon: 6.6323, tz: "Europe/Zurich" },
+  { name: "La Fouly", region: "Canton du Valais, Suisse", lat: 45.9336, lon: 7.0977, tz: "Europe/Zurich" },
+  { name: "Les Plans-sur-Bex", region: "Canton de Vaud, Suisse", lat: 46.2546, lon: 7.1007, tz: "Europe/Zurich" },
+];
+let seeded = false;
 try {
   const s = JSON.parse(localStorage.getItem(STORE_KEY) || "null");
   if (s) Object.assign(state, { favs: s.favs || [], place: s.place || null, base: s.base || "topo", mode: s.mode || 0, opacity: s.opacity || 0.55 });
+  seeded = !!s?.seeded;
 } catch { /* ignore */ }
-if (!state.place) state.place = { name: "La Fouly", region: "Canton du Valais, Suisse", lat: 45.9336, lon: 7.0977, tz: "Europe/Zurich" };
+// Favoris par défaut, ajoutés une seule fois : ceux qu'on supprime ensuite ne reviennent pas
+if (!seeded) state.favs = [...DEFAULT_FAVS.filter(d => !state.favs.some(f => Math.abs(f.lat - d.lat) < 1e-3 && Math.abs(f.lon - d.lon) < 1e-3)), ...state.favs];
+if (!state.place) state.place = { ...DEFAULT_FAVS[1] };
 state.tz = state.place.tz || browserTz;
 
 // Heure locale du lieu (minutes depuis minuit) → instant réel
@@ -884,6 +896,18 @@ function renderFavs() {
     chipGestures(chip, main, f);
     box.append(chip);
   });
+  renderFavMarkers();
+}
+// Favoris sur la carte, avec leur nom ; un appui sur le point y va
+const favLayer = L.layerGroup().addTo(map);
+function renderFavMarkers() {
+  favLayer.clearLayers();
+  state.favs.forEach(f => {
+    L.circleMarker([f.lat, f.lon], { radius: 5, color: "#fff", weight: 2, fillColor: "#1d2130", fillOpacity: 1 })
+      .bindTooltip(f.name, { permanent: true, direction: "auto", offset: [0, 0], className: "fav-label" })
+      .on("click", e => { L.DomEvent.stop(e); setPlace({ ...f }, false); })
+      .addTo(favLayer);
+  });
 }
 function renameFav(chip, fav) {
   const input = document.createElement("input");
@@ -1112,6 +1136,12 @@ state.minute = Math.round((nowParts.hour * 60 + nowParts.minute) / 5) * 5 % 1440
 // si on ouvre la page la nuit, on se place à 10h
 if (sunPosition(dateAt(state.minute), state.place.lat, state.place.lon).alt <= 0) state.minute = 600;
 setPlace(state.place, false);
+// Vue de départ : tous les favoris, avec de la marge, au-dessus du panneau du bas
+if (state.favs.length > 1) {
+  const b = L.latLngBounds(state.favs.map(f => [f.lat, f.lon])).pad(0.25);
+  map.fitBounds(b, { paddingTopLeft: [20, 50], paddingBottomRight: [20, $("panel").offsetHeight + 20], animate: false });
+}
+save();
 loadGrid();
 </script>
 </body>
